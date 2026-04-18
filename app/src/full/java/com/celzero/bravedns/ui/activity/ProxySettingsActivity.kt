@@ -82,7 +82,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.android.ext.android.inject
 import java.util.concurrent.TimeUnit
-import com.celzero.bravedns.service.UsqueManager
 import android.app.ProgressDialog
 
 
@@ -255,7 +254,6 @@ b.settingsActivityWarpSwitch.setOnCheckedChangeListener { _, checked ->
     } else {
         // Disable WARP
         persistentState.usqueWarpEnabled = false
-        b.settingsActivityWarpDesc.text = getString(R.string.warp_status_inactive)
         logEvent("WARP Tunnel disabled", "User disabled WARP tunnel")
     }
 }
@@ -1180,7 +1178,6 @@ private fun showWarpRegistrationDialog() {
 
 private fun startWarpRegistration() {
     val progressDialog = ProgressDialog(this)
-    progressDialog.setTitle(R.string.warp_registration_in_progress)
     progressDialog.setMessage("Registering with WARP service...")
     progressDialog.setCancelable(false)
     progressDialog.show()

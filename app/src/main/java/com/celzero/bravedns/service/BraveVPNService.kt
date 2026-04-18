@@ -80,7 +80,6 @@ import com.celzero.bravedns.database.EventSource
 import com.celzero.bravedns.database.EventType
 import com.celzero.bravedns.database.RefreshDatabase
 import com.celzero.bravedns.net.go.GoVpnAdapter
-import com.celzero.bravedns.service.UsqueManager
 import com.celzero.bravedns.net.manager.ConnectionTracer
 import com.celzero.bravedns.receiver.NotificationActionReceiver
 import com.celzero.bravedns.receiver.UserPresentReceiver
