@@ -261,7 +261,7 @@ configurations {
     }
 }
 
-def firestackRepo = project.findProperty("firestackRepo") ?: "github"
+def firestackRepo = project.findProperty("firestackRepo") ?: "ossrh"
 def firestackCommit = project.findProperty("firestackCommit") ?: "main"
 
 def firestackDependency = { suffix = ":debug" ->
