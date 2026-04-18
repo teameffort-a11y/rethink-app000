@@ -296,29 +296,7 @@ object WireguardManager : KoinComponent {
     }
 
 
-private fun registerWarp() {
-    // Show progress dialog
-    val progressDialog = ProgressDialog(this)
-    progressDialog.setTitle("Registering WARP...")
-    progressDialog.setMessage("Please wait...")
-    progressDialog.setCancelable(false)
-    progressDialog.show()
-    
-    // Register in background
-    io {
-        val registered = UsqueManager.registerWithWarp(this@ProxySettingsActivity)
-        uiCtx {
-            progressDialog.dismiss()
-            if (registered) {
-                showToastUiCentered(this@ProxySettingsActivity, "WARP Registered!", Toast.LENGTH_SHORT)
-                persistentState.usqueWarpEnabled = true
-                // VPN restart will be triggered automatically
-            } else {
-                showToastUiCentered(this@ProxySettingsActivity, "Registration failed", Toast.LENGTH_SHORT)
-            }
-        }
-    }
-}
+
 
 
     
