@@ -143,7 +143,7 @@ def firestackDependency = { suffix = ":debug" ->
     }
 }
 
-dependencies dependencies {
+dependencies {
     def room_version = "2.8.1"
     def paging_version = "3.3.6"
 
@@ -223,6 +223,4 @@ dependencies dependencies {
     playImplementation platform('com.google.firebase:firebase-bom:34.6.0')
     playImplementation 'com.google.firebase:firebase-crashlytics'
     playImplementation 'com.google.firebase:firebase-crashlytics-ndk'
-
-}
 }
