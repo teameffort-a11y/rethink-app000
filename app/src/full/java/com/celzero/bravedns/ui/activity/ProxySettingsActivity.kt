@@ -53,6 +53,10 @@ import com.celzero.bravedns.net.doh.Transaction
 import com.celzero.bravedns.service.EventLogger
 import com.celzero.bravedns.service.FirewallManager
 import com.celzero.bravedns.service.PersistentState
+// ── LOCATION 1 ───────────────────────────────────────────────────────────────
+// Add this import with the other service imports (around line 55)
+// ─────────────────────────────────────────────────────────────────────────────
+import com.celzero.bravedns.service.UsqueManager
 import com.celzero.bravedns.service.ProxyManager
 import com.celzero.bravedns.service.TcpProxyHelper
 import com.celzero.bravedns.service.VpnController
@@ -120,6 +124,7 @@ class ProxySettingsActivity : AppCompatActivity(R.layout.fragment_proxy_configur
         initAnimation()
         initView()
         initClickListeners()
+        displayWarpUi()
     }
 
     private fun initAnimation() {
