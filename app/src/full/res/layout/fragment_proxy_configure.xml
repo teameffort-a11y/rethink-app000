@@ -176,7 +176,7 @@
             android:layout_height="24dp"
             android:src="@drawable/ic_vpn"
             android:contentDescription="WARP Icon"
-            android:tint="?attr/colorPrimary" />
+            android:tint="?attr/accentGood" />
 
         <LinearLayout
             android:layout_width="0dp"
@@ -191,7 +191,8 @@
                 android:text="WARP Tunnel"
                 android:textSize="16sp"
                 android:textStyle="bold"
-                android:textColor="?attr/colorOnSurface" />
+                android:textColor="?attr/accentGood"/>
+        
 
             <TextView
                 android:id="@+id/settings_activity_warp_desc"
@@ -199,7 +200,7 @@
                 android:layout_height="wrap_content"
                 android:text="✗ Not registered"
                 android:textSize="12sp"
-                android:textColor="?attr/colorOnSurfaceVariant"
+                android:textColor="?attr/accentGood"
                 android:layout_marginTop="4dp" />
 
         </LinearLayout>

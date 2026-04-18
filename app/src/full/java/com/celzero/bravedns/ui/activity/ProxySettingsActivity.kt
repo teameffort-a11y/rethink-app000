@@ -1169,6 +1169,12 @@ b.settingsActivityWarpRegisterBtn.setOnClickListener {
         builder.setNegativeButton("Cancel") { dialog, _ ->
             dialog.dismiss()
         }
+        builder.setPositiveButton("Accept") { dialog, _ ->
+            io {
+            WireguardManager.registerWarp()
+        }
+            dialog.dismiss()
+        }
         builder.setCancelable(true)
         val dialog = builder.create()
         dialog.show()
