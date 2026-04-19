@@ -696,5 +696,6 @@ class PersistentState(context: Context) : SimpleKrate(context), KoinComponent {
     var customLanDnsIpv6 by stringPref("custom_lan_dns_ipv6").withDefault<String>("fd66:f83a:c650::3/128")
 
     var customModeOrIpChanged by booleanPref("custom_lan_mode_ip_changed").withDefault<Boolean>(false)
+    var usqueEnabled by booleanPref("pref_usque_enabled").withDefault<Boolean>(false)
 }
 
