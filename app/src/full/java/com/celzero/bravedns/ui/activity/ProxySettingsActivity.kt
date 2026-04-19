@@ -1209,7 +1209,7 @@ private fun showWarpRegistrationDialog() {
     builder.setTitle(R.string.warp_register_button)
     builder.setMessage("Register device with Cloudflare WARP?")
     builder.setPositiveButton("Register") { dialog, _ ->
-        doWarpRegistration()
+        registerWarp()
         dialog.dismiss()
     }
     builder.setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
