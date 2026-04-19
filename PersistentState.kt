@@ -5,6 +5,10 @@
     const val PREF_USQUE_TUN_IP6 = "pref_usque_tun_ipv6"
 
     var usqueEnabled: Boolean
+    get() = prefs.getBool(PREF_USQUE_ENABLED, false)
+    set(value) = prefs.setBool(PREF_USQUE_ENABLED, value)
+
+    var usqueEnabled: Boolean
         get() = sharedPreferences.getBoolean(PREF_USQUE_ENABLED, false)
         set(value) = sharedPreferences.edit().putBoolean(PREF_USQUE_ENABLED, value).apply()
 
