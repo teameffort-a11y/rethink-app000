@@ -18,9 +18,40 @@ object UsqueManager {
         return File(ctx.filesDir, "config.json").exists()
     }
 
+suspend fun registerWithWarp(context: Context): Boolean = try {
+    Log.d(TAG, "Starting WARP registration")
+    
+    val bin = extractBinary(context)
+    Log.d(TAG, "Binary extracted: ${bin?.absolutePath}")
+    if (bin == null) {
+        Log.e(TAG, "Binary extraction failed")
+        return false
+    }
+    
+    val configDir = File(context.filesDir, CONFIG_DIR).also { it.mkdirs() }
+    val configFile = File(configDir, CONFIG_FILE)
+    Log.d(TAG, "Config file path: ${configFile.absolutePath}")
 
+    val cmd = listOf(bin.absolutePath, "register", "--accept-tos", "-c", configFile.absolutePath)
+    Log.i(TAG, "register command: ${cmd.joinToString(" ")}")
 
-suspend fun registerWithWarp(context: Context): Boolean = withContext(Dispatchers.IO) {
+    val proc = ProcessBuilder(cmd).redirectErrorStream(true).start()
+    val exit = proc.waitFor()
+    Log.i(TAG, "register exit code: $exit")
+    Log.i(TAG, "config file exists: ${configFile.exists()}")
+    if (configFile.exists()) {
+        Log.i(TAG, "config file length: ${configFile.length()}")
+    }
+
+    val result = exit == 0 && configFile.exists() && configFile.length() > 0L
+    Log.i(TAG, "Registration result: $result")
+    result
+} catch (e: Exception) {
+    Log.e(TAG, "registerWithWarp error: ${e.message}", e)
+    false
+}
+
+/** suspend fun registerWithWarp(context: Context): Boolean = withContext(Dispatchers.IO) {
     Logger.i(LOG_TAG_PROXY, "registerWithWarp CALLED")  // add this as first line
     try {
         val bin = copyBinary(context)
@@ -48,7 +79,7 @@ suspend fun registerWithWarp(context: Context): Boolean = withContext(Dispatcher
         Logger.e(LOG_TAG_PROXY, "usque register failed: ${e.message}", e)
         false
     }
-}
+}. **/
 
     
 
