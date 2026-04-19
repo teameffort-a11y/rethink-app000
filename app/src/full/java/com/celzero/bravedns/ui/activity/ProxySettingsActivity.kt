@@ -1203,48 +1203,22 @@ b.settingsActivityWarpRegisterBtn.setOnClickListener {
 
         // ===== WARP TUNNEL METHODS =====
 
-    private fun showWarpRegistrationDialog() {
-        val builder = MaterialAlertDialogBuilder(this, R.style.App_Dialog_NoDim)
-        builder.setTitle(R.string.warp_register_button)
-        builder.setMessage("Register device with Cloudflare WARP?\n\nThis enables the high-speed WARP tunnel.")
     
-        builder.setNegativeButton("Cancel") { dialog, _ ->
-            dialog.dismiss()
-        }
-        builder.setPositiveButton("Accept") 
-
-
-        builder.setPositiveButton("Accept") { dialog, _ ->
-    registerWarp()   // just call it
-    dialog.dismiss()
+private fun showWarpRegistrationDialog() {
+    val builder = MaterialAlertDialogBuilder(this, R.style.App_Dialog_NoDim)
+    builder.setTitle(R.string.warp_register_button)
+    builder.setMessage("Register device with Cloudflare WARP?")
+    builder.setPositiveButton("Register") { dialog, _ ->
+        doWarpRegistration()
+        dialog.dismiss()
+    }
+    builder.setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
+    builder.setCancelable(true)
+    builder.create().show()
 }
 
-// ... elsewhere in the class, at the same level as other private funs:
-private fun registerWarp() {
-    val progressDialog = ProgressDialog(this)
-    progressDialog.setTitle("Registering WARP...")
-    progressDialog.setMessage("Please wait...")
-    progressDialog.setCancelable(false)
-    progressDialog.show()
 
-    io {
-        val registered = UsqueManager.registerWithWarp(this@ProxySettingsActivity)
-        uiCtx {
-            progressDialog.dismiss()
-            if (registered) {
-                showToastUiCentered(this@ProxySettingsActivity, "WARP Registered!", Toast.LENGTH_SHORT)
-                persistentState.usqueEnabled = true
-            } else {
-                showToastUiCentered(this@ProxySettingsActivity, "Registration failed", Toast.LENGTH_SHORT)
-            }
-        }
-    }
-}
 
-        builder.setCancelable(true)
-        val dialog = builder.create()
-        dialog.show()
-    }
 
     private fun displayWarpUi() {
         val isEnabled = persistentState.usqueEnabled
