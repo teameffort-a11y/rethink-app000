@@ -7,11 +7,7 @@
     var usqueEnabled: Boolean
        get() = prefs.getBool(PREF_USQUE_ENABLED, false)
        set(value) = prefs.setBool(PREF_USQUE_ENABLED, value)
-
-    var usqueEnabled: Boolean
-        get() = sharedPreferences.getBoolean(PREF_USQUE_ENABLED, false)
-        set(value) = sharedPreferences.edit().putBoolean(PREF_USQUE_ENABLED, value).apply()
-
+       
     var usqueRegistered: Boolean
         get() = sharedPreferences.getBoolean(PREF_USQUE_REGISTERED, false)
         set(value) = sharedPreferences.edit().putBoolean(PREF_USQUE_REGISTERED, value).apply()
