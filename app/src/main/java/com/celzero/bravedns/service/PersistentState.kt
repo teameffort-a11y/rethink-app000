@@ -428,8 +428,7 @@ class PersistentState(context: Context) : SimpleKrate(context), KoinComponent {
 
     // set vpn builder to metered/unmetered
     var setVpnBuilderToMetered by booleanPref("set_vpn_builder_to_metered").withDefault<Boolean>(false)
-// WARP tunnel enabled state
-    var usqueWarpEnabled by booleanPref("usque_warp_enabled").withDefault<Boolean>(false)
+
     // debug settings, panic random
     var panicRandom by booleanPref("panic_random").withDefault<Boolean>(false)
 

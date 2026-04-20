@@ -153,7 +153,7 @@ class Config private constructor(builder: Builder) {
         }
 
         fun addPeers(peers: Collection<Peer>?): Builder {
-            this.peers.addAll(peers!!)
+            if (peers != null) this.peers.addAll(peers)
             return this
         }
 

@@ -1,10 +1,8 @@
 package com.celzero.bravedns.service
 
 import Logger
-import Logger.LOG_TAG_PROXY
 import android.content.Context
 import android.util.Log
-import com.google.firebase.crashlytics.FirebaseCrashlytics
 import java.io.File
 import java.io.StringWriter
 import kotlinx.coroutines.Dispatchers
@@ -109,7 +107,7 @@ object UsqueManager {
 
         } catch (e: Exception) {
             dlog(context, "EXCEPTION ${e.message}\n${e.stackTraceToString()}")
-            try { FirebaseCrashlytics.getInstance().recordException(e) } catch (_: Exception) {}
+            Logger.e(Logger.LOG_TAG_PROXY, "registerWithWarp exception", e)
             false
         }
     }
@@ -169,7 +167,7 @@ object UsqueManager {
 
         } catch (e: Exception) {
             dlog(ctx, "startSocksProxy: EXCEPTION ${e.message}\n${e.stackTraceToString()}")
-            try { FirebaseCrashlytics.getInstance().recordException(e) } catch (_: Exception) {}
+            Logger.e(Logger.LOG_TAG_PROXY, "startSocksProxy exception", e)
             false
         }
     }

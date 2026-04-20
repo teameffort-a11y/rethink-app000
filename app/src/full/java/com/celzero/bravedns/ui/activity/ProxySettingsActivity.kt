@@ -17,7 +17,6 @@ package com.celzero.bravedns.ui.activity
 
 import Logger
 import Logger.LOG_TAG_PROXY
-import android.app.ProgressDialog
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -98,6 +97,9 @@ class ProxySettingsActivity : AppCompatActivity(R.layout.fragment_proxy_configur
         private const val ANIMATION_PIVOT_VALUE = 0.5f
         private const val ANIMATION_START_DEGREE = 0.0f
         private const val ANIMATION_END_DEGREE = 360.0f
+        // Reserved ID for the WARP SOCKS5 proxy row. Negative so Room's auto-increment
+        // (which starts at 1) never collides with the user's custom proxy entries.
+        private const val WARP_PROXY_ID = -1
     }
 
     private fun Context.isDarkThemeOn(): Boolean {
@@ -225,20 +227,34 @@ class ProxySettingsActivity : AppCompatActivity(R.layout.fragment_proxy_configur
                 return@setOnClickListener
             }
             b.settingsActivityWarpConnectBtn.isEnabled = false
+            // Capture the string on the main thread before switching to IO.
+            val warpProxyName = getString(R.string.warp_tunnel_title)
             io {
                 val started = UsqueManager.startSocksProxy(this@ProxySettingsActivity)
+                if (started) {
+                    // Use a reserved negative ID so this row never collides with the
+                    // user's custom SOCKS5 proxy (auto-generated IDs start at 1).
+                    val warpProxy = ProxyEndpoint(
+                        WARP_PROXY_ID,
+                        warpProxyName,
+                        ProxyManager.ProxyMode.SOCKS5.value,
+                        ProxyEndpoint.DEFAULT_PROXY_TYPE,
+                        /* appName */ "",
+                        UsqueManager.SOCKS_HOST,
+                        UsqueManager.SOCKS_PORT,
+                        /* userName */ "",
+                        /* password */ "",
+                        isSelected = true,
+                        isCustom = true,
+                        isUDP = false,
+                        modifiedDataTime = 0L,
+                        latency = 0
+                    )
+                    appConfig.updateCustomSocks5Proxy(warpProxy)
+                    persistentState.usqueEnabled = true
+                }
                 uiCtx {
                     if (started) {
-                        insertSocks5Endpoint(
-                            0,
-                            UsqueManager.SOCKS_HOST,
-                            UsqueManager.SOCKS_PORT,
-                            getString(R.string.settings_app_list_default_app),
-                            "",
-                            "",
-                            false
-                        )
-                        persistentState.usqueEnabled = true
                         updateWarpUi()
                     } else {
                         b.settingsActivityWarpConnectBtn.isEnabled = true
@@ -337,10 +353,11 @@ class ProxySettingsActivity : AppCompatActivity(R.layout.fragment_proxy_configur
     }
 
     private fun registerWarp() {
-        val progressDialog = ProgressDialog(this)
-        progressDialog.setTitle("Registering WARP...")
-        progressDialog.setMessage("Please wait...")
-        progressDialog.setCancelable(false)
+        val progressDialog = MaterialAlertDialogBuilder(this, R.style.App_Dialog_NoDim)
+            .setTitle(R.string.warp_registering)
+            .setMessage(R.string.warp_registering)
+            .setCancelable(false)
+            .create()
         progressDialog.show()
         io {
             val registered = UsqueManager.registerWithWarp(this@ProxySettingsActivity)
@@ -348,9 +365,9 @@ class ProxySettingsActivity : AppCompatActivity(R.layout.fragment_proxy_configur
             uiCtx {
                 progressDialog.dismiss()
                 MaterialAlertDialogBuilder(this@ProxySettingsActivity, R.style.App_Dialog_NoDim)
-                    .setTitle(if (registered) "✅ WARP Registered" else "❌ Registration Failed")
+                    .setTitle(if (registered) R.string.warp_registered_ok else R.string.warp_register_failed)
                     .setMessage(debugLog)
-                    .setPositiveButton("OK") { d, _ ->
+                    .setPositiveButton(R.string.lbl_dismiss) { d, _ ->
                         d.dismiss()
                         updateWarpUi()
                     }

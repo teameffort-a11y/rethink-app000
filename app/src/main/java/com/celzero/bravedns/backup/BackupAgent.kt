@@ -239,10 +239,14 @@ class BackupAgent(val context: Context, workerParams: WorkerParameters) :
             val inputStream: InputStream =
                 context.contentResolver.openInputStream(zipFileUri) ?: return false
             val outputStream: OutputStream =
-                context.contentResolver.openOutputStream(destUri) ?: return false
+                context.contentResolver.openOutputStream(destUri) ?: run {
+                    inputStream.close()
+                    return false
+                }
 
             // we are passing the streams instead of actual files because we do not have
             // write access to the destination dir.
+            // copyWithStream closes both streams via use{} internally.
             val copySucceeded: Boolean = copyWithStream(inputStream, outputStream)
             return if (copySucceeded) {
                 Logger.i(
@@ -337,25 +341,20 @@ class BackupAgent(val context: Context, workerParams: WorkerParameters) :
         val outputFileName = zipDirectory + File.separator + TEMP_ZIP_FILE_NAME
         Logger.d(LOG_TAG_BACKUP_RESTORE, "files: $files, output: $outputFileName")
         return try {
-            val dest = FileOutputStream(outputFileName)
-            val out = ZipOutputStream(BufferedOutputStream(dest))
             val bufferSize = 80000
-            var origin: BufferedInputStream
             val data = ByteArray(bufferSize)
-            for (file in files) {
-                val fi = FileInputStream(file)
-                origin = BufferedInputStream(fi, bufferSize)
-                val entry = ZipEntry(getFileNameFromPath(file))
-                out.putNextEntry(entry)
-                var count: Int
-                while (origin.read(data, 0, bufferSize).also { count = it } != -1) {
-                    out.write(data, 0, count)
+            ZipOutputStream(BufferedOutputStream(FileOutputStream(outputFileName))).use { out ->
+                for (file in files) {
+                    BufferedInputStream(FileInputStream(file), bufferSize).use { origin ->
+                        out.putNextEntry(ZipEntry(getFileNameFromPath(file)))
+                        var count: Int
+                        while (origin.read(data, 0, bufferSize).also { count = it } != -1) {
+                            out.write(data, 0, count)
+                        }
+                    }
+                    Logger.d(LOG_TAG_BACKUP_RESTORE, "$file added to zip, path: $file")
                 }
-                origin.close()
-                Logger.d(LOG_TAG_BACKUP_RESTORE, "$file added to zip, path: $file")
             }
-            out.close()
-            out.close()
             Logger.i(LOG_TAG_BACKUP_RESTORE, "$files added to zip")
             true
         } catch (e: Exception) {
