@@ -24,7 +24,27 @@ object UsqueManager {
         Logger.i(LOG_TAG_PROXY, "registerWithWarp: CALLED")
         try {
             val bin = copyBinary(context)
+            
+android.util.Log.d("WARP_DEBUG", "bin=${bin.absolutePath}")
+android.util.Log.d("WARP_DEBUG", "exists=${bin.exists()}")
+android.util.Log.d("WARP_DEBUG", "canExec=${bin.canExecute()}")
+android.util.Log.d("WARP_DEBUG", "size=${bin.length()}")
+
+try {
+    val test = Runtime.getRuntime().exec(bin.absolutePath)
+    val exit = test.waitFor()
+    val err = test.errorStream.bufferedReader().readText()
+    android.util.Log.d("WARP_DEBUG", "test exit=$exit err=$err")
+} catch (e: Exception) {
+    android.util.Log.d("WARP_DEBUG", "EXEC EXCEPTION: ${e.message}")
+}
+
+
+
             android.util.Log.d("WARP_DEBUG", "bin exists=${bin.exists()} canExec=${bin.canExecute()} size=${bin.length()}")
+            
+            
+            
             val configFile = File(context.filesDir, "config.json")
             val cmd = listOf(bin.absolutePath, "register", "-c", configFile.absolutePath)
             val proc = ProcessBuilder(cmd).redirectErrorStream(true).start()
