@@ -1,4 +1,4 @@
-## Rethink DNS + Firewall + VPN for Android ( Added Cloudflare Warp Masque vpn) (20-APR-2026)
+## Rethink DNS + Firewall + VPN for Android ( Added Cloudflare Warp Masque VPN Support) (20-APR-2026)
 A [WireGuard](https://github.com/wireguard/wireguard-go) client, an [OpenSnitch](https://github.com/evilsocket/opensnitch)-inspired firewall and network monitor + a [pi-hole](https://github.com/pi-hole/pi-hole)-inspired DNS over HTTPS, DNS over TLS, DNSCrypt client with blocklists.
 
 [<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png"
