@@ -31,60 +31,45 @@ object UsqueManager {
         return f.exists() && f.length() > 0L
     }
 
-    suspend fun registerWithWarp(context: Context): Boolean = withContext(Dispatchers.IO) {
-        Log.d("WARP_DEBUG", "registerWithWarp: >>>ENTRY<<<")
-        try {
-            val bin = getBinary(context)
 
-            if (!bin.exists()) {
-                Log.d("WARP_DEBUG", "registerWithWarp: BINARY NOT FOUND — did you put libusque.so in jniLibs/arm64-v8a/?")
-                return@withContext false
-            }
-
-            if (!bin.canExecute()) {
-                Log.d("WARP_DEBUG", "registerWithWarp: BINARY NOT EXECUTABLE — W^X policy blocking filesDir execution?")
-                return@withContext false
-            }
-
-            // Delete old config so we always get a fresh registration
-            val configFile = File(context.filesDir, "config.json")
-            if (configFile.exists()) {
-                configFile.delete()
-                Log.d("WARP_DEBUG", "registerWithWarp: deleted old config.json")
-            }
-
-            val cmd = listOf(bin.absolutePath, "register", "-c", configFile.absolutePath)
-            Log.d("WARP_DEBUG", "registerWithWarp: cmd=${cmd.joinToString(" ")}")
-
-            val proc = ProcessBuilder(cmd)
-                .redirectErrorStream(false) // keep stderr separate so we can see it
-                .start()
-
-            // Answer "y" to the Terms of Service prompt
-            proc.outputStream.bufferedWriter().use { w ->
-                w.write("y\n")
-                w.flush()
-            }
-
-            val stdout = proc.inputStream.bufferedReader().readText()
-            val stderr = proc.errorStream.bufferedReader().readText()
-            val exit = proc.waitFor()
-
-            Log.d("WARP_DEBUG", "registerWithWarp: exit=$exit")
-            Log.d("WARP_DEBUG", "registerWithWarp: stdout=$stdout")
-            Log.d("WARP_DEBUG", "registerWithWarp: stderr=$stderr")
-            Log.d("WARP_DEBUG", "registerWithWarp: configExists=${configFile.exists()} size=${configFile.length()}")
-
-            val ok = exit == 0 && configFile.exists() && configFile.length() > 0L
-            Log.d("WARP_DEBUG", "registerWithWarp: result=$ok")
-            ok
-
-        } catch (e: Exception) {
-            Log.e("WARP_DEBUG", "registerWithWarp: EXCEPTION ${e.message}", e)
-            FirebaseCrashlytics.getInstance().recordException(e)
-            false
+private fun registerWarp() {
+    val progressDialog = ProgressDialog(this)
+    progressDialog.setTitle("Registering WARP...")
+    progressDialog.setMessage("Please wait...")
+    progressDialog.setCancelable(false)
+    progressDialog.show()
+    io {
+        val registered = UsqueManager.registerWithWarp(this@ProxySettingsActivity)
+        val debugLog = UsqueManager.readDebugLog(this@ProxySettingsActivity)
+        uiCtx {
+            progressDialog.dismiss()
+            // ── always show debug log so you can see it on LambdaTest ──
+            MaterialAlertDialogBuilder(this@ProxySettingsActivity, R.style.App_Dialog_NoDim)
+                .setTitle(if (registered) "✅ WARP Registered" else "❌ Registration Failed")
+                .setMessage(debugLog)
+                .setPositiveButton("OK") { d, _ ->
+                    d.dismiss()
+                    if (registered) persistentState.usqueEnabled = true
+                }
+                .show()
         }
     }
+}
+
+private fun showWarpRegistrationDialog() {
+    MaterialAlertDialogBuilder(this, R.style.App_Dialog_NoDim)
+        .setTitle(R.string.warp_register_button)
+        .setMessage("Register device with Cloudflare WARP?")
+        .setPositiveButton("Register") { dialog, _ -> dialog.dismiss(); registerWarp() }
+        .setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
+        .setCancelable(true)
+        .create().show()
+}
+
+
+
+
+    
 
     suspend fun startSocksProxy(ctx: Context): Boolean = withContext(Dispatchers.IO) {
         Log.d("WARP_DEBUG", "startSocksProxy: >>>ENTRY<<<")
