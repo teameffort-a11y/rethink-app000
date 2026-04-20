@@ -115,6 +115,7 @@ object UsqueManager {
     }
 
     suspend fun startSocksProxy(ctx: Context): Boolean = withContext(Dispatchers.IO) {
+        clearDebugLog(ctx)
         dlog(ctx, "startSocksProxy: >>>ENTRY<<<")
         stopSocksProxy()
         try {
@@ -124,19 +125,50 @@ object UsqueManager {
                 return@withContext false
             }
 
-            val cmd = listOf(bin.absolutePath, "socks", "-b", SOCKS_HOST, "-p", SOCKS_PORT.toString())
+            val configFile = File(ctx.filesDir, "config.json")
+            dlog(ctx, "startSocksProxy: configExists=${configFile.exists()} size=${configFile.length()}")
+
+            val cmd = listOf(bin.absolutePath, "socks", "-b", SOCKS_HOST, "-p", SOCKS_PORT.toString(),
+                             "-c", configFile.absolutePath)
             dlog(ctx, "startSocksProxy: cmd=${cmd.joinToString(" ")}")
 
-            val pb = ProcessBuilder(cmd).redirectErrorStream(true)
+            val pb = ProcessBuilder(cmd).redirectErrorStream(false)
             pb.environment()["GODEBUG"] = "vgetrandom=off"
-            process = pb.start()
-            Thread.sleep(800)
-            val alive = process?.isAlive == true
+            val proc = pb.start()
+            process = proc
+
+            // Drain stdout and stderr in background threads so the process doesn't block on a
+            // full pipe buffer. Capture output for diagnostics if the process exits early.
+            val outputWriter = StringWriter()
+            val errorWriter = StringWriter()
+            val outThread = Thread {
+                try { outputWriter.write(proc.inputStream.bufferedReader().readText()) } catch (_: Exception) {}
+            }.also { it.isDaemon = true; it.start() }
+            val errThread = Thread {
+                try { errorWriter.write(proc.errorStream.bufferedReader().readText()) } catch (_: Exception) {}
+            }.also { it.isDaemon = true; it.start() }
+
+            // Give the process time to either bind the port or crash.
+            Thread.sleep(1500)
+
+            val alive = proc.isAlive
             dlog(ctx, "startSocksProxy: alive=$alive")
+
+            if (!alive) {
+                // Process already exited — collect its output before reporting failure.
+                outThread.join(2000)
+                errThread.join(2000)
+                val exit = try { proc.exitValue() } catch (_: Exception) { -1 }
+                dlog(ctx, "startSocksProxy: exit=$exit")
+                dlog(ctx, "startSocksProxy: stdout=${outputWriter}")
+                dlog(ctx, "startSocksProxy: stderr=${errorWriter}")
+                process = null
+            }
+
             alive
 
         } catch (e: Exception) {
-            dlog(ctx, "startSocksProxy: EXCEPTION ${e.message}")
+            dlog(ctx, "startSocksProxy: EXCEPTION ${e.message}\n${e.stackTraceToString()}")
             try { FirebaseCrashlytics.getInstance().recordException(e) } catch (_: Exception) {}
             false
         }
