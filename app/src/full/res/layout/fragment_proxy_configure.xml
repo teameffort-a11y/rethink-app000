@@ -217,30 +217,30 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:layout_marginTop="12dp"
-            android:gravity="end">
+            android:gravity="center">
 
             <!-- Register (always visible until registered) -->
-            <com.google.android.material.button.MaterialButton
+            <androidx.appcompat.widget.AppCompatButton
                 android:id="@+id/settings_activity_warp_register_btn"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                style="@style/Button.HomeScreen.Main"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/warp_register_button"
                 android:layout_marginEnd="8dp" />
 
             <!-- Connect (visible when registered but not connected) -->
-            <com.google.android.material.button.MaterialButton
+            <androidx.appcompat.widget.AppCompatButton
                 android:id="@+id/settings_activity_warp_connect_btn"
-                style="@style/Widget.MaterialComponents.Button"
+                style="@style/Button.HomeScreen.Main"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/warp_btn_connect"
                 android:visibility="gone" />
 
             <!-- Disconnect (visible when connected) -->
-            <com.google.android.material.button.MaterialButton
+            <androidx.appcompat.widget.AppCompatButton
                 android:id="@+id/settings_activity_warp_disconnect_btn"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                style="@style/Button.HomeScreen.Main"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/warp_btn_disconnect"
