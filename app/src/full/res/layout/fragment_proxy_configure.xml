@@ -235,6 +235,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/warp_btn_connect"
+                android:textColor="?attr/primaryTextColor"
                 android:visibility="gone" />
 
             <!-- Disconnect (visible when connected) -->
@@ -244,6 +245,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="@string/warp_btn_disconnect"
+                android:textColor="?attr/primaryTextColor"
                 android:visibility="gone" />
 
         </LinearLayout>
