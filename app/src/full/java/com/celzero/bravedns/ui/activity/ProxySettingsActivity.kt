@@ -220,60 +220,7 @@ class ProxySettingsActivity : AppCompatActivity(R.layout.fragment_proxy_configur
 
         // ===== WARP TUNNEL SECTION =====
         b.settingsActivityWarpRegisterBtn.setOnClickListener { showWarpRegistrationDialog() }
-
-        b.settingsActivityWarpConnectBtn.setOnClickListener {
-            if (!UsqueManager.isRegistered(this)) {
-                showWarpRegistrationDialog()
-                return@setOnClickListener
-            }
-            b.settingsActivityWarpConnectBtn.isEnabled = false
-            // Capture the string on the main thread before switching to IO.
-            val warpProxyName = getString(R.string.warp_tunnel_title)
-            io {
-                val started = UsqueManager.startSocksProxy(this@ProxySettingsActivity)
-                if (started) {
-                    // Use a reserved negative ID so this row never collides with the
-                    // user's custom SOCKS5 proxy (auto-generated IDs start at 1).
-                    val warpProxy = ProxyEndpoint(
-                        WARP_PROXY_ID,
-                        warpProxyName,
-                        ProxyManager.ProxyMode.SOCKS5.value,
-                        ProxyEndpoint.DEFAULT_PROXY_TYPE,
-                        /* appName */ "",
-                        UsqueManager.SOCKS_HOST,
-                        UsqueManager.SOCKS_PORT,
-                        /* userName */ "",
-                        /* password */ "",
-                        isSelected = true,
-                        isCustom = true,
-                        isUDP = false,
-                        modifiedDataTime = 0L,
-                        latency = 0
-                    )
-                    appConfig.updateCustomSocks5Proxy(warpProxy)
-                    persistentState.usqueEnabled = true
-                }
-                uiCtx {
-                    if (started) {
-                        updateWarpUi()
-                    } else {
-                        b.settingsActivityWarpConnectBtn.isEnabled = true
-                        showToastUiCentered(
-                            this@ProxySettingsActivity,
-                            getString(R.string.warp_start_failed),
-                            Toast.LENGTH_SHORT
-                        )
-                    }
-                }
-            }
-        }
-
-        b.settingsActivityWarpDisconnectBtn.setOnClickListener {
-            UsqueManager.stopSocksProxy()
-            appConfig.removeProxy(AppConfig.ProxyType.SOCKS5, AppConfig.ProxyProvider.CUSTOM)
-            persistentState.usqueEnabled = false
-            updateWarpUi()
-        }
+        // Switch listener is attached (and re-attached safely) in updateWarpUi()
         // ===== END WARP SECTION =====
 
         b.settingsActivityOrbotImg.setOnClickListener { handleOrbotUiEvent() }
@@ -394,14 +341,66 @@ class ProxySettingsActivity : AppCompatActivity(R.layout.fragment_proxy_configur
         b.settingsActivityWarpRegisterBtn.visibility =
             if (isRegistered) View.GONE else View.VISIBLE
 
-        // Connect: shown when registered but not connected
-        b.settingsActivityWarpConnectBtn.visibility =
-            if (isRegistered && !isConnected) View.VISIBLE else View.GONE
-        b.settingsActivityWarpConnectBtn.isEnabled = true
+        // Switch row: only shown when registered
+        b.settingsActivityWarpSwitchRow.visibility =
+            if (isRegistered) View.VISIBLE else View.GONE
 
-        // Disconnect: shown only when connected
-        b.settingsActivityWarpDisconnectBtn.visibility =
-            if (isConnected) View.VISIBLE else View.GONE
+        // Update switch state without triggering the listener
+        b.settingsActivityWarpSwitch.setOnCheckedChangeListener(null)
+        b.settingsActivityWarpSwitch.isChecked = isConnected
+        b.settingsActivityWarpSwitch.isEnabled = true
+        b.settingsActivityWarpSwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                if (!UsqueManager.isRegistered(this)) {
+                    b.settingsActivityWarpSwitch.isChecked = false
+                    showWarpRegistrationDialog()
+                    return@setOnCheckedChangeListener
+                }
+                b.settingsActivityWarpSwitch.isEnabled = false
+                val warpProxyName = getString(R.string.warp_tunnel_title)
+                io {
+                    val started = UsqueManager.startSocksProxy(this@ProxySettingsActivity)
+                    if (started) {
+                        val warpProxy = ProxyEndpoint(
+                            WARP_PROXY_ID,
+                            warpProxyName,
+                            ProxyManager.ProxyMode.SOCKS5.value,
+                            ProxyEndpoint.DEFAULT_PROXY_TYPE,
+                            /* appName */ "",
+                            UsqueManager.SOCKS_HOST,
+                            UsqueManager.SOCKS_PORT,
+                            /* userName */ "",
+                            /* password */ "",
+                            isSelected = true,
+                            isCustom = true,
+                            isUDP = false,
+                            modifiedDataTime = 0L,
+                            latency = 0
+                        )
+                        appConfig.updateCustomSocks5Proxy(warpProxy)
+                        persistentState.usqueEnabled = true
+                    }
+                    uiCtx {
+                        if (started) {
+                            updateWarpUi()
+                        } else {
+                            b.settingsActivityWarpSwitch.isChecked = false
+                            b.settingsActivityWarpSwitch.isEnabled = true
+                            showToastUiCentered(
+                                this@ProxySettingsActivity,
+                                getString(R.string.warp_start_failed),
+                                Toast.LENGTH_SHORT
+                            )
+                        }
+                    }
+                }
+            } else {
+                UsqueManager.stopSocksProxy()
+                appConfig.removeProxy(AppConfig.ProxyType.SOCKS5, AppConfig.ProxyProvider.CUSTOM)
+                persistentState.usqueEnabled = false
+                updateWarpUi()
+            }
+        }
     }
 
     // ===== END WARP METHODS =====

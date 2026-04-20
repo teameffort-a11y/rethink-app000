@@ -211,45 +211,35 @@
 
         </LinearLayout>
 
-        <!-- Action buttons row -->
-        <LinearLayout
+        <!-- Connect/disconnect switch row -->
+        <RelativeLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
             android:layout_marginTop="12dp"
-            android:gravity="end">
+            android:visibility="gone"
+            android:id="@+id/settings_activity_warp_switch_row">
 
-            <!-- Register (always visible until registered) -->
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/settings_activity_warp_register_btn"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/settings_activity_warp_switch"
+                style="@style/CustomWidget.MaterialComponents.CompoundButton.Switch"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/warp_register_button"
-                android:textColor="?attr/primaryTextColor"
-                android:layout_marginEnd="8dp" />
+                android:layout_alignParentEnd="true"
+                android:layout_centerVertical="true"
+                android:padding="10dp" />
 
-            <!-- Connect (visible when registered but not connected) -->
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/settings_activity_warp_connect_btn"
-                style="@style/Widget.MaterialComponents.Button"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/warp_btn_connect"
-                android:textColor="?attr/primaryTextColor"
-                android:visibility="gone" />
+        </RelativeLayout>
 
-            <!-- Disconnect (visible when connected) -->
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/settings_activity_warp_disconnect_btn"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/warp_btn_disconnect"
-                android:textColor="?attr/primaryTextColor"
-                android:visibility="gone" />
-
-        </LinearLayout>
+        <!-- Register button (centered, visible until registered) -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/settings_activity_warp_register_btn"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="12dp"
+            android:text="@string/warp_register_button"
+            android:textColor="?attr/primaryTextColor" />
 
     </LinearLayout>
 

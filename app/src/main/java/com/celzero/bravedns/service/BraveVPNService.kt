@@ -2641,11 +2641,9 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
                 // custom either means socks5 or http proxy
                 // socks5 proxy requires app to be excluded from vpn, so restart vpn
                 val isSocks5 = tunProxyMode == AppConfig.TunProxyMode.SOCKS5
-                val reason = if (isSocks5) {
-                    "customProxy: ${appConfig.getSocks5ProxyDetails()}"
-                } else {
-                    "customProxy: ${appConfig.getHttpProxyDetails()}"
-                }
+                val proxy = if (isSocks5) appConfig.getSocks5ProxyDetails() else appConfig.getHttpProxyDetails()
+                val proxyDesc = if (proxy != null) "${proxy.proxyName} (${proxy.proxyIP}:${proxy.proxyPort})" else "none"
+                val reason = "customProxy: $proxyDesc, type: ${if (isSocks5) "socks5" else "http"}"
                 vpnRestartTrigger.value = reason
                 vpnAdapter?.setCustomProxy(tunProxyMode)
             }
@@ -2815,7 +2813,10 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
             Log.INFO -> Logger.i(LOG_TAG_VPN, msg)
             else -> Logger.d(LOG_TAG_VPN, msg)
         }
-        uiCtx("toast") { if (DEBUG) showToastUiCentered(this, msg, Toast.LENGTH_LONG) }
+        // only surface WARN/ERROR to the user; INFO/DEBUG are internal status messages
+        if (logLevel == Log.WARN || logLevel == Log.ERROR) {
+            uiCtx("toast") { if (DEBUG) showToastUiCentered(this, msg, Toast.LENGTH_LONG) }
+        }
     }
 
     private fun notifyConnectionStateChangeIfNeeded() {
@@ -3080,11 +3081,10 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
         if (isMtuChanged || isRoutesChanged || forceRestart) {
             Logger.i(LOG_TAG_VPN, "$TAG; mtu/routes/force-restart,  restart vpn")
             ioCtx("nwConnect") {
-                var reason = "mtu: ${curnet?.minMtu}/${networks.minMtu}, "
-                reason += "r: $isRoutesChanged, "
-                reason += "nws: ${curnet?.ipv4Net?.size}/${curnet?.ipv6Net?.size} > new: ${networks.ipv4Net.size}/${networks.ipv6Net.size} ($isBoundNetworksChanged), "
-                reason += "force: $forceRestart, lock: ${curnet?.vpnLockdown}/${networks.vpnLockdown}, "
-                reason += "nwConnect, $reason"
+                val reason = "nwConnect, mtu: ${curnet?.minMtu}/${networks.minMtu}, " +
+                    "r: $isRoutesChanged, " +
+                    "nws: ${curnet?.ipv4Net?.size}/${curnet?.ipv6Net?.size} > new: ${networks.ipv4Net.size}/${networks.ipv6Net.size} ($isBoundNetworksChanged), " +
+                    "force: $forceRestart, lock: ${curnet?.vpnLockdown}/${networks.vpnLockdown}"
                 vpnRestartTrigger.value = reason
                 // not needed as the refresh is done in go, TODO: remove below code later
                 // only after set links and routes, wg can be refreshed
