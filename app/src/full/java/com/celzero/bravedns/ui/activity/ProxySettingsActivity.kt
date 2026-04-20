@@ -1177,36 +1177,30 @@ private fun registerWarp() {
     progressDialog.show()
     io {
         val registered = UsqueManager.registerWithWarp(this@ProxySettingsActivity)
+        val debugLog = UsqueManager.readDebugLog(this@ProxySettingsActivity)
         uiCtx {
             progressDialog.dismiss()
-            if (registered) {
-                persistentState.usqueEnabled = true
-                showToastUiCentered(this@ProxySettingsActivity, "WARP Registered!", Toast.LENGTH_SHORT)
-            } else {
-                showToastUiCentered(this@ProxySettingsActivity, "Registration failed", Toast.LENGTH_SHORT)
-            }
+            // ── always show debug log so you can see it on LambdaTest ──
+            MaterialAlertDialogBuilder(this@ProxySettingsActivity, R.style.App_Dialog_NoDim)
+                .setTitle(if (registered) "✅ WARP Registered" else "❌ Registration Failed")
+                .setMessage(debugLog)
+                .setPositiveButton("OK") { d, _ ->
+                    d.dismiss()
+                    if (registered) persistentState.usqueEnabled = true
+                }
+                .show()
         }
     }
 }
 
-
-
-    
-
-        // ===== WARP TUNNEL METHODS =====
-
-    
 private fun showWarpRegistrationDialog() {
-    val builder = MaterialAlertDialogBuilder(this, R.style.App_Dialog_NoDim)
-    builder.setTitle(R.string.warp_register_button)
-    builder.setMessage("Register device with Cloudflare WARP?")
-    builder.setPositiveButton("Register") { dialog, _ ->
-        registerWarp()
-        dialog.dismiss()
-    }
-    builder.setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
-    builder.setCancelable(true)
-    builder.create().show()
+    MaterialAlertDialogBuilder(this, R.style.App_Dialog_NoDim)
+        .setTitle(R.string.warp_register_button)
+        .setMessage("Register device with Cloudflare WARP?")
+        .setPositiveButton("Register") { dialog, _ -> dialog.dismiss(); registerWarp() }
+        .setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
+        .setCancelable(true)
+        .create().show()
 }
 
 
