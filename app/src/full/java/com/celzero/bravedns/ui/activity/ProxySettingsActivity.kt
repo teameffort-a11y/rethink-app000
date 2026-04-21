@@ -308,32 +308,19 @@ class ProxySettingsActivity : AppCompatActivity(R.layout.fragment_proxy_configur
         progressDialog.show()
         io {
             val registered = UsqueManager.registerWithWarp(this@ProxySettingsActivity)
-            val debugLog = UsqueManager.readDebugLog(this@ProxySettingsActivity)
             uiCtx {
                 progressDialog.dismiss()
-                if (registered) {
-                    // Simple confirmation modal — no debug log on the happy
-                    // path; the proxy row also refreshes to "Registered".
-                    MaterialAlertDialogBuilder(this@ProxySettingsActivity, R.style.App_Dialog_NoDim)
-                        .setTitle(R.string.warp_registered_ok)
-                        .setMessage(R.string.warp_registered_ok)
-                        .setPositiveButton(R.string.lbl_dismiss) { d, _ ->
-                            d.dismiss()
-                            updateWarpUi()
-                        }
-                        .show()
-                } else {
-                    // Error path: keep the original modal with the debug
-                    // log so the user can see what went wrong.
-                    MaterialAlertDialogBuilder(this@ProxySettingsActivity, R.style.App_Dialog_NoDim)
-                        .setTitle(R.string.warp_register_failed)
-                        .setMessage(debugLog)
-                        .setPositiveButton(R.string.lbl_dismiss) { d, _ ->
-                            d.dismiss()
-                            updateWarpUi()
-                        }
-                        .show()
-                }
+                // No post-register modal: surface the outcome via a toast and
+                // let the proxy row reflect the new state.
+                val msg =
+                    if (registered) getString(R.string.warp_registered_ok)
+                    else getString(R.string.warp_register_failed)
+                showToastUiCentered(
+                    this@ProxySettingsActivity,
+                    msg,
+                    Toast.LENGTH_SHORT
+                )
+                updateWarpUi()
             }
         }
     }
