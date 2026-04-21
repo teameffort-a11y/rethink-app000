@@ -136,17 +136,7 @@ class WgConfigDetailActivity : AppCompatActivity(R.layout.activity_wg_detail) {
     }
 
     private fun init() {
-        if (!VpnController.hasTunnel()) {
-            Logger.i(LOG_TAG_PROXY, "VPN not active, config may not be available")
-            Utilities.showToastUiCentered(
-                this,
-                ERR_CODE_VPN_NOT_ACTIVE +
-                        getString(R.string.settings_socks5_vpn_disabled_error),
-                Toast.LENGTH_LONG
-            )
-            finish()
-            return
-        }
+        val vpnActive = VpnController.hasTunnel()
 
         b.editBtn.text = getString(R.string.rt_edit_dialog_positive).uppercase()
         b.deleteBtn.text = getString(R.string.lbl_delete).uppercase()
@@ -198,7 +188,11 @@ class WgConfigDetailActivity : AppCompatActivity(R.layout.activity_wg_detail) {
         } else {
             b.applicationsBtn.isEnabled = false
         }
-        io { updateStatusUi(config.getId()) }
+        if (vpnActive) {
+            io { updateStatusUi(config.getId()) }
+        } else {
+            b.statusText.text = getString(R.string.lbl_disabled).replaceFirstChar(Char::titlecase)
+        }
         prefillConfig(config)
     }
 
@@ -450,12 +444,6 @@ class WgConfigDetailActivity : AppCompatActivity(R.layout.activity_wg_detail) {
             startActivity(ID_WG_BASE + configId)
         }
 
-        b.wgConfigDismissBtn.setOnClickListener {
-            // Reset fields to current saved values
-            val config = WireguardManager.getConfigById(configId)
-            if (config != null) prefillConfigCard(config)
-        }
-
         b.wgConfigSaveBtn.setOnClickListener {
             saveConfigCard()
         }
@@ -615,11 +603,12 @@ class WgConfigDetailActivity : AppCompatActivity(R.layout.activity_wg_detail) {
     private fun saveConfigCard() {
         val name = b.wgConfigNameText.text.toString().trim()
         val dns = b.wgConfigDnsText.text.toString().trim().ifEmpty { "1.1.1.1" }
-        val mtu = b.wgConfigMtuText.text.toString().trim().ifEmpty { "-1" }
+        // "0" means not set (Optional.empty); empty field = use default
+        val mtu = b.wgConfigMtuText.text.toString().trim().ifEmpty { "0" }
         val currentIface = wgInterface ?: return
         io {
             try {
-                val newIface = WgInterface.Builder()
+                val builder = WgInterface.Builder()
                     .parsePrivateKey(currentIface.getKeyPair().getPrivateKey().base64().tos())
                     .parseAddresses(currentIface.getAddresses().joinToString { it.toString() })
                     .parseListenPort(
@@ -627,7 +616,17 @@ class WgConfigDetailActivity : AppCompatActivity(R.layout.activity_wg_detail) {
                     )
                     .parseDnsServers(dns)
                     .parseMtu(mtu)
-                    .build()
+                // preserve amnezia props if present
+                currentIface.getJc().ifPresent { builder.setJc(it) }
+                currentIface.getJmin().ifPresent { builder.setJmin(it) }
+                currentIface.getJmax().ifPresent { builder.setJmax(it) }
+                currentIface.getS1().ifPresent { builder.setS1(it) }
+                currentIface.getS2().ifPresent { builder.setS2(it) }
+                currentIface.getH1().ifPresent { builder.setH1(it) }
+                currentIface.getH2().ifPresent { builder.setH2(it) }
+                currentIface.getH3().ifPresent { builder.setH3(it) }
+                currentIface.getH4().ifPresent { builder.setH4(it) }
+                val newIface = builder.build()
                 val updated = WireguardManager.addOrUpdateInterface(configId, name, newIface)
                 if (updated != null) {
                     wgInterface = updated.getInterface()
