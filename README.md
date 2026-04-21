@@ -6,7 +6,7 @@ Rethink DNS + Firewall + VPN for Android ( Added Cloudflare Warp Masque VPN Supp
 
 
 
-[<img src="https://github.com/716boy/rethink-app/blob/main/file_00000000ee4471fd8da148fa39a9bd23.png  ">]
+<img src="https://github.com/716boy/rethink-app/blob/main/file_00000000ee4471fd8da148fa39a9bd23.png  ">
 
 
 A FORK OF RETHINK DNS
