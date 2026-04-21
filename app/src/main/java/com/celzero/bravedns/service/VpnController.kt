@@ -137,21 +137,20 @@ object VpnController : KoinComponent {
     }
 
     fun start(context: Context, autoAttempt: Boolean = false) {
-        // if the tunnel has the go-adapter then there's nothing to do
-        if (hasTunnel()) {
-            Logger.w(LOG_TAG_VPN, "braveVPNService is already on, resending vpn enabled state")
-            return
-        }
-        Logger.d("TEST", "vpn start: ${braveVpnService != null}, reboot: $autoAttempt")
-        // below check is to avoid multiple calls to start the vpn when always-on is enabled
-        // case: after a device reboot, vpn?.isAlwaysOnEnabled() may return false even though
-        // always-on is actually enabled; this causes the VPN to start twice and fails doing so.
-        // one approach is to store the always-on state in persistent state and check it here.
-        // another is to check whether the vpn is already running.
-        // todo: see whether changing the persistent state is really necessary.
-        if (braveVpnService != null && autoAttempt) {
-            Logger.i(LOG_TAG_VPN, "vpn service already running, no need to start")
-            return
+        if (autoAttempt) {
+            // For auto-restarts (boot, always-on): guard against double-start.
+            if (hasTunnel()) {
+                Logger.w(LOG_TAG_VPN, "braveVPNService is already on, skipping auto-start")
+                return
+            }
+            if (braveVpnService != null) {
+                Logger.i(LOG_TAG_VPN, "vpn service already running, no need to auto-start")
+                return
+            }
+        } else {
+            // For manual user-initiated starts: always forward the intent to the service.
+            // onStartCommand handles both update-tun and new-vpn cases correctly.
+            Logger.i(LOG_TAG_VPN, "manual start: forwarding to service")
         }
         try {
             // else: resend/send the start-command to the vpn service which handles both false-start

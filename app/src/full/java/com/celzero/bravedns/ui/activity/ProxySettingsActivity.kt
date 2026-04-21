@@ -308,17 +308,19 @@ class ProxySettingsActivity : AppCompatActivity(R.layout.fragment_proxy_configur
         progressDialog.show()
         io {
             val registered = UsqueManager.registerWithWarp(this@ProxySettingsActivity)
-            val debugLog = UsqueManager.readDebugLog(this@ProxySettingsActivity)
             uiCtx {
                 progressDialog.dismiss()
-                MaterialAlertDialogBuilder(this@ProxySettingsActivity, R.style.App_Dialog_NoDim)
-                    .setTitle(if (registered) R.string.warp_registered_ok else R.string.warp_register_failed)
-                    .setMessage(debugLog)
-                    .setPositiveButton(R.string.lbl_dismiss) { d, _ ->
-                        d.dismiss()
-                        updateWarpUi()
-                    }
-                    .show()
+                // No post-register modal: surface the outcome via a toast and
+                // let the proxy row reflect the new state.
+                val msg =
+                    if (registered) getString(R.string.warp_registered_ok)
+                    else getString(R.string.warp_register_failed)
+                showToastUiCentered(
+                    this@ProxySettingsActivity,
+                    msg,
+                    Toast.LENGTH_SHORT
+                )
+                updateWarpUi()
             }
         }
     }

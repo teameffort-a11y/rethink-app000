@@ -2962,8 +2962,21 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
 
             val prevSize = (prev?.ipv4Net?.size ?: 0) + (prev?.ipv6Net?.size ?: 0)
             val currSize = networks.ipv4Net.size + networks.ipv6Net.size
-            // force restart if no networks before or after
-            val forceRestart  = (prevSize == 0 && currSize > 0) || (prevSize > 0 && currSize == 0)
+            // Detect a genuine network switch (e.g., WiFi -> Mobile): same non-zero
+            // count but different network handles. Force-restart so WireGuard/proxies
+            // re-bind to the new interface instead of silently failing.
+            val prevHandles = ((prev?.ipv4Net ?: emptyList()) + (prev?.ipv6Net ?: emptyList()))
+                .map { it.network.networkHandle }.toSet()
+            val currHandles = (networks.ipv4Net + networks.ipv6Net)
+                .map { it.network.networkHandle }.toSet()
+            val networkSwitched = prevHandles.isNotEmpty()
+                && currHandles.isNotEmpty()
+                && prevHandles != currHandles
+            if (networkSwitched) {
+                Logger.i(LOG_TAG_VPN, "onNetworkChange: underlying network switched, forcing VPN restart")
+            }
+            // force restart when network count changes from/to 0, or network itself switched
+            val forceRestart = (prevSize == 0 && currSize > 0) || (prevSize > 0 && currSize == 0) || networkSwitched
             if (currSize > 0) {
                 onNetworkConnected(networks, forceRestart)
             } else {
