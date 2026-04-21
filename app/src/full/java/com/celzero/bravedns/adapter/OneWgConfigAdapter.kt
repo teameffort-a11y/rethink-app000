@@ -123,7 +123,7 @@ class OneWgConfigAdapter(private val context: Context, private val listener: Dns
             b.interfaceNameText.isSelected = true
             b.interfaceIdText.text = context.getString(R.string.single_argument_parenthesis, config.id.toString())
             val isWgActive = config.isActive && VpnController.hasTunnel()
-            b.oneWgCheck.isChecked = isWgActive
+            b.oneWgCheck.isChecked = config.isActive
             setupClickListeners(config)
             if (isWgActive) {
                 keepStatusUpdated(config)
@@ -323,7 +323,6 @@ class OneWgConfigAdapter(private val context: Context, private val listener: Dns
             b.interfaceDetailCard.strokeWidth = 0
             b.protocolInfoChipGroup.visibility = View.GONE
             b.interfaceAppsCount.visibility = View.GONE
-            b.oneWgCheck.isChecked = false
             b.interfaceActiveLayout.visibility = View.GONE
             b.interfaceStatus.text =
                 context.getString(R.string.lbl_disabled).replaceFirstChar(Char::titlecase)
@@ -394,20 +393,6 @@ class OneWgConfigAdapter(private val context: Context, private val listener: Dns
         }
 
         private suspend fun enableWgIfPossible(config: WgConfigFiles) {
-            if (!VpnController.hasTunnel()) {
-                Logger.i(LOG_TAG_PROXY, "$TAG VPN not active, cannot enable WireGuard")
-                uiCtx {
-                    Utilities.showToastUiCentered(
-                        context,
-                        ERR_CODE_VPN_NOT_ACTIVE +
-                            context.getString(R.string.settings_socks5_vpn_disabled_error),
-                        Toast.LENGTH_LONG
-                    )
-                    // reset the check box
-                    b.oneWgCheck.isChecked = false
-                }
-                return
-            }
 
             if (!WireguardManager.canEnableProxy()) {
                 Logger.i(LOG_TAG_PROXY, "not in DNS+Firewall mode, cannot enable WireGuard")
@@ -462,20 +447,6 @@ class OneWgConfigAdapter(private val context: Context, private val listener: Dns
         }
 
         private suspend fun disableWgIfPossible(config: WgConfigFiles) {
-            if (!VpnController.hasTunnel()) {
-                Logger.i(LOG_TAG_PROXY, "VPN not active, cannot disable WireGuard")
-                uiCtx {
-                    // reset the check box
-                    b.oneWgCheck.isChecked = true
-                    Utilities.showToastUiCentered(
-                        context,
-                        ERR_CODE_VPN_NOT_ACTIVE +
-                            context.getString(R.string.settings_socks5_vpn_disabled_error),
-                        Toast.LENGTH_LONG
-                    )
-                }
-                return
-            }
 
             Logger.i(LOG_TAG_PROXY, "disabling WireGuard, id: ${config.id}")
             WireguardManager.updateOneWireGuardConfig(config.id, owg = false)
