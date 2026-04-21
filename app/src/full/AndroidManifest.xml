@@ -4,6 +4,57 @@
 
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!--
+        FIX #12 — ACCESS_BACKGROUND_LOCATION moved here from the main manifest.
+
+        This permission is required only in the "full" flavor because SSID-based
+        WireGuard rules (the feature that reads the connected WiFi network name) live
+        exclusively in this flavor.
+
+        maxSdkVersion="32" ensures the permission is never requested on Android 13+
+        (API 33+), where NetworkCapabilities / WifiInfo can return the SSID without
+        any location grant.  On Android 13+ the app must use NetworkCallback with
+        ACCESS_NETWORK_STATE instead of LocationManager.
+
+        On Android 10–12 (API 29–32) background location IS required to read the SSID
+        when the VPN service needs to re-evaluate rules after the screen turns off.
+        The VPN service runs as a foreground service (persistent notification) but
+        Android still gates SSID reads on the location permission in this range.
+    -->
+    <uses-permission
+        android:name="android.permission.ACCESS_BACKGROUND_LOCATION"
+        android:maxSdkVersion="32"
+        tools:targetApi="29" />
+
+    <!--
+        FIX #4 — VpnControlReceiver: add android:permission to the receiver declaration.
+
+        The receiver is intentionally exported so that third-party automation apps
+        (e.g. Tasker, MacroDroid) can start/stop the VPN.  However, the previous
+        declaration had NO android:permission attribute, meaning ANY installed app
+        could send a broadcast to it.
+
+        We declare a custom permission at the normal protection level so that:
+          (a) Senders must explicitly declare <uses-permission> for it, which means
+              users who inspect permissions can see which apps request it.
+          (b) It documents the intent — this receiver is an explicit public API for
+              automation apps, not an internal component.
+
+        We do NOT use protectionLevel="signature" because that would prevent legitimate
+        third-party automation apps from sending the broadcast.  Instead, identity
+        verification is handled in code (see VpnControlReceiver.kt):
+          • API 34+: sentFromPackage / sentFromUid (OS-verified, cannot be spoofed).
+          • Pre-API 34: package name from EXTRA_PACKAGE_NAME / EXTRA_INTENT with
+            PackageManager signature verification as defence-in-depth.
+          • The old self-reported "sender" string extra has been removed because any
+            app can put an arbitrary string in an intent extra.
+    -->
+    <permission
+        android:name="com.celzero.bravedns.permission.VPN_CONTROL"
+        android:label="Control RethinkDNS VPN"
+        android:description="@string/app_name"
+        android:protectionLevel="normal" />
+
     <application
         android:name=".RethinkDnsApplication"
         android:theme="@style/AppThemeInitial">
@@ -159,13 +210,6 @@
         <activity
             android:name=".ui.activity.DomainConnectionsActivity"
             android:finishOnTaskLaunch="true" />
-        <!--<activity
-            android:name=".ui.activity.PingTestActivity"
-            android:finishOnTaskLaunch="true" />
-        <activity android:name=".ui.activity.RpnCountriesActivity"
-            android:finishOnTaskLaunch="true" />
-        <activity android:name=".ui.activity.RpnAvailabilityCheckActivity"
-            android:finishOnTaskLaunch="true" />-->
         <activity android:name=".ui.activity.FragmentHostActivity"
             android:finishOnTaskLaunch="true" />
         <activity android:name=".ui.activity.RpnWinProxyDetailsActivity"
@@ -178,8 +222,6 @@
             android:excludeFromRecents="true"
             android:taskAffinity=""
             android:launchMode="standard"/>
-       <!-- <activity android:name=".ui.location.LocationSelectorActivity"
-            android:finishOnTaskLaunch="true" />-->
 
         <receiver
             android:name=".receiver.BraveAutoStartReceiver"
@@ -194,15 +236,33 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <!--
+            FIX #4 — VpnControlReceiver: require the VPN_CONTROL custom permission.
+
+            Senders must declare:
+                <uses-permission android:name="com.celzero.bravedns.permission.VPN_CONTROL" />
+            This is a normal-level permission (not signature), so automation apps like
+            Tasker can request it and the user grants it at install time.  It creates an
+            explicit, auditable permission contract visible in the app's manifest and in
+            tools like apktool, raising the bar above the previous "no permission" state.
+
+            In-code identity verification in VpnControlReceiver.kt provides a second
+            layer:  the spoofable "sender" string extra has been removed and replaced
+            with OS-verified identity on API 34+ (sentFromPackage / sentFromUid), with
+            signature verification as defence-in-depth on pre-API 34 devices.
+        -->
         <receiver
             android:name=".receiver.VpnControlReceiver"
             android:exported="true"
+            android:permission="com.celzero.bravedns.permission.VPN_CONTROL"
             android:label="@string/app_name">
             <intent-filter>
                 <action android:name="com.celzero.bravedns.intent.action.VPN_START" />
                 <action android:name="com.celzero.bravedns.intent.action.VPN_STOP" />
             </intent-filter>
         </receiver>
+
         <receiver
             android:name=".receiver.NotificationActionReceiver"
             android:exported="false"
@@ -226,28 +286,5 @@
                 android:value="true" />
         </service>
 
-        <service
-            android:name=".util.BackgroundAccessibilityService"
-            android:exported="true"
-            android:label="@string/app_name"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/accessibility_service_config" />
-        </service>
-
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="com.celzero.bravedns.provider;com.celzero.bravedns.backup.BackupAgent"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_provider_paths" />
-        </provider>
     </application>
 </manifest>
