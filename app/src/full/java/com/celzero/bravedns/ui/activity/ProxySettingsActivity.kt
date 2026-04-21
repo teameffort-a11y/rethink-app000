@@ -311,14 +311,23 @@ class ProxySettingsActivity : AppCompatActivity(R.layout.fragment_proxy_configur
             val debugLog = UsqueManager.readDebugLog(this@ProxySettingsActivity)
             uiCtx {
                 progressDialog.dismiss()
-                MaterialAlertDialogBuilder(this@ProxySettingsActivity, R.style.App_Dialog_NoDim)
-                    .setTitle(if (registered) R.string.warp_registered_ok else R.string.warp_register_failed)
-                    .setMessage(debugLog)
-                    .setPositiveButton(R.string.lbl_dismiss) { d, _ ->
-                        d.dismiss()
-                        updateWarpUi()
+                // No success modal — silently refresh the proxy view when
+                // registration completes. Failures still surface as a brief
+                // toast so the user isn't left guessing, and the debug log
+                // remains available via UsqueManager.readDebugLog().
+                if (registered) {
+                    updateWarpUi()
+                } else {
+                    Toast.makeText(
+                        this@ProxySettingsActivity,
+                        getString(R.string.warp_register_failed),
+                        Toast.LENGTH_LONG
+                    ).show()
+                    if (debugLog.isNotBlank()) {
+                        Logger.w(LOG_TAG_PROXY, "WARP register failed: $debugLog")
                     }
-                    .show()
+                    updateWarpUi()
+                }
             }
         }
     }
