@@ -5501,6 +5501,22 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
 
     suspend fun pauseSsidEnabledWireGuardOnNoNw() {
         val activeWgs = WireguardManager.getActiveConfigs()
+        // SECURITY (VULN-G): An attacker can broadcast an evil-twin AP using a
+        // known-trusted SSID and silently trick this code into pausing the
+        // WireGuard tunnel. We pin the BSSID first observed for an SSID (TOFU)
+        // and refuse to pause when the current BSSID does not match the pinned
+        // one.
+        val activeSsid = getUnderlyingSsid() ?: ""
+        val activeBssid = getUnderlyingBssidSafely()
+        val bssidMatches = isBssidTrustedForSsid(activeSsid, activeBssid)
+        if (persistentState.requireBssidMatchForSsid && activeSsid.isNotEmpty() && !bssidMatches) {
+            Logger.w(
+                LOG_TAG_VPN,
+                "AUDIT (VULN-G): refusing SSID-based wg pause; BSSID for '$activeSsid' " +
+                        "did not match the trusted (TOFU) BSSID. Possible evil-twin AP."
+            )
+            return
+        }
         activeWgs.forEach { config ->
             val map = WireguardManager.getConfigFilesById(config.getId())
             if (map == null || !map.ssidEnabled) {
@@ -5513,6 +5529,46 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
             // pause the wireguard proxy, so that it won't be used for new connections
             vpnAdapter?.pauseWireguard(id)
         }
+    }
+
+    /**
+     * Reads the current Wi-Fi BSSID. Returns null when permission is missing or
+     * the device is not on Wi-Fi. Wrapped in try/catch because WifiManager APIs
+     * can throw SecurityException on newer Android versions if location
+     * permission has been revoked.
+     */
+    private fun getUnderlyingBssidSafely(): String? {
+        return try {
+            val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            @Suppress("DEPRECATION")
+            wm?.connectionInfo?.bssid
+        } catch (e: Throwable) {
+            Logger.d(LOG_TAG_VPN, "BSSID read failed: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Trust-on-first-use check. The first time we see a given SSID we pin its
+     * BSSID; subsequent connections must match. If we cannot read the BSSID we
+     * fail open (return true) to avoid blocking the user on devices/permissions
+     * that don't expose it — but we still log.
+     */
+    private fun isBssidTrustedForSsid(ssid: String, currentBssid: String?): Boolean {
+        if (ssid.isEmpty()) return true
+        if (currentBssid.isNullOrEmpty() || currentBssid == "02:00:00:00:00:00") {
+            // Anonymized/unreadable BSSID — fail open but record.
+            return true
+        }
+        val prefs = applicationContext.getSharedPreferences("ssid_bssid_pin", Context.MODE_PRIVATE)
+        val key = "ssid:" + ssid
+        val pinned = prefs.getString(key, null)
+        if (pinned == null) {
+            prefs.edit().putString(key, currentBssid).apply()
+            Logger.i(LOG_TAG_VPN, "TOFU: pinned BSSID $currentBssid for SSID '$ssid'")
+            return true
+        }
+        return pinned.equals(currentBssid, ignoreCase = true)
     }
 
     suspend fun refreshOrPauseOrResumeOrReAddProxies() {

@@ -426,6 +426,26 @@ class PersistentState(context: Context) : SimpleKrate(context), KoinComponent {
     // experimental feature to use max mtu
     var useMaxMtu by booleanPref("use_max_mtu").withDefault<Boolean>(false)
 
+    // SECURITY (VULN-B): Block all ICMP through the tunnel by default. ICMP packets
+    // are not run through the firewall flow callback in firestack, which lets a
+    // fully-blocked app exfiltrate data over ICMP echo. The Go bridge must consult
+    // this flag and drop ICMP unless the user has explicitly opted in.
+    var blockIcmp by booleanPref("block_icmp").withDefault<Boolean>(true)
+
+    // SECURITY (VULN-K): Cap DNS cache TTL and entry count to prevent a rogue
+    // resolver from filling memory with INT_MAX-TTL entries (which would OOM the
+    // VPN service and trigger a traffic leak). Values are advisory; the Go DNS
+    // cache must clamp accepted TTLs to [0, maxDnsCacheTtlSec] and evict when
+    // dnsCacheMaxEntries is exceeded.
+    var maxDnsCacheTtlSec by longPref("max_dns_cache_ttl_sec").withDefault<Long>(3600L)
+    var dnsCacheMaxEntries by intPref("dns_cache_max_entries").withDefault<Int>(10_000)
+
+    // SECURITY (VULN-G): When enabled, SSID-based WireGuard pause requires the
+    // current BSSID to match the BSSID first observed for that SSID (TOFU). This
+    // prevents an evil-twin AP that copies a known SSID from silently pausing the
+    // tunnel. Defaults to true.
+    var requireBssidMatchForSsid by booleanPref("require_bssid_match_ssid").withDefault<Boolean>(true)
+
     // set vpn builder to metered/unmetered
     var setVpnBuilderToMetered by booleanPref("set_vpn_builder_to_metered").withDefault<Boolean>(false)
 
