@@ -356,8 +356,8 @@ class PersistentState(context: Context) : SimpleKrate(context), KoinComponent {
 
     var tcpKeepAlive by booleanPref("tcp_keep_alive").withDefault<Boolean>(false)
 
-    // enable split dns, default on Android R and above, as we can identify app which is sending dns
-    var splitDns by booleanPref("split_dns").withDefault<Boolean>(isAtleastR())
+    // split dns (experimental); default disabled
+    var splitDns by booleanPref("split_dns").withDefault<Boolean>(false)
 
     // use system dns for undelegatedDomains
     var useSystemDnsForUndelegatedDomains by booleanPref("use_system_dns_for_undelegated_domains").withDefault<Boolean>(false)
