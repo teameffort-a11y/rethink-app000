@@ -126,9 +126,26 @@ object UsqueManager {
             val configFile = File(ctx.filesDir, "config.json")
             dlog(ctx, "startSocksProxy: configExists=${configFile.exists()} size=${configFile.length()}")
 
-            val cmd = listOf(bin.absolutePath, "socks", "-b", SOCKS_HOST, "-p", SOCKS_PORT.toString(),
-                             "-c", configFile.absolutePath)
-            dlog(ctx, "startSocksProxy: cmd=${cmd.joinToString(" ")}")
+            // Apply user-configured SNI override (defaults to "cloudflare.com").
+              // Read at process-start time so the user's saved value is used for every restart.
+              val sni = try {
+                  org.koin.java.KoinJavaComponent
+                      .get<PersistentState>(PersistentState::class.java)
+                      .warpSpoofedSni.trim()
+              } catch (t: Throwable) {
+                  dlog(ctx, "startSocksProxy: SNI lookup failed: ${t.message}")
+                  ""
+              }
+              val cmd = mutableListOf(
+                  bin.absolutePath, "socks",
+                  "-b", SOCKS_HOST,
+                  "-p", SOCKS_PORT.toString(),
+                  "-c", configFile.absolutePath
+              )
+              if (sni.isNotEmpty()) {
+                  cmd += listOf("-s", sni)
+              }
+              dlog(ctx, "startSocksProxy: cmd=${cmd.joinToString(" ")}")
 
             val pb = ProcessBuilder(cmd).redirectErrorStream(false)
             pb.environment()["GODEBUG"] = "vgetrandom=off"
