@@ -230,7 +230,50 @@
 
         </RelativeLayout>
 
-        <!-- Register button (centered, visible until registered) -->
+        <!-- SNI override editor: max 20 chars, default cloudflare.com -->
+          <LinearLayout
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:layout_marginTop="12dp"
+              android:gravity="center_vertical"
+              android:orientation="horizontal">
+
+              <com.google.android.material.textfield.TextInputLayout
+                  android:layout_width="0dp"
+                  android:layout_height="wrap_content"
+                  android:layout_weight="1"
+                  android:hint="SNI (ClientHello)">
+
+                  <com.google.android.material.textfield.TextInputEditText
+                      android:id="@+id/settings_activity_warp_sni_edit"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:inputType="textUri"
+                      android:maxLength="20"
+                      android:singleLine="true"
+                      android:text="cloudflare.com" />
+              </com.google.android.material.textfield.TextInputLayout>
+
+              <com.google.android.material.button.MaterialButton
+                  android:id="@+id/settings_activity_warp_sni_save_btn"
+                  style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_marginStart="8dp"
+                  android:text="Save"
+                  android:textColor="?attr/primaryTextColor" />
+
+              <com.google.android.material.button.MaterialButton
+                  android:id="@+id/settings_activity_warp_sni_reset_btn"
+                  style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_marginStart="8dp"
+                  android:text="Reset"
+                  android:textColor="?attr/primaryTextColor" />
+          </LinearLayout>
+
+          <!-- Register button (centered, visible until registered) -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/settings_activity_warp_register_btn"
             style="@style/Widget.MaterialComponents.Button.OutlinedButton"

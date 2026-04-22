@@ -220,6 +220,39 @@ class ProxySettingsActivity : AppCompatActivity(R.layout.fragment_proxy_configur
 
         // ===== WARP TUNNEL SECTION =====
         b.settingsActivityWarpRegisterBtn.setOnClickListener { showWarpRegistrationDialog() }
+
+        // SNI editor: prefill, save, reset, and live-restart WARP if it's running.
+        b.settingsActivityWarpSniEdit.setText(persistentState.warpSpoofedSni)
+
+        b.settingsActivityWarpSniSaveBtn.setOnClickListener {
+            val raw = b.settingsActivityWarpSniEdit.text?.toString()?.trim().orEmpty()
+            val value = if (raw.isEmpty()) "cloudflare.com" else raw.take(20)
+            val previous = persistentState.warpSpoofedSni
+            persistentState.warpSpoofedSni = value
+            b.settingsActivityWarpSniEdit.setText(value)
+
+            if (value == previous) {
+                showToastUiCentered(this, "SNI unchanged: $value", Toast.LENGTH_SHORT)
+                return@setOnClickListener
+            }
+            showToastUiCentered(this, "SNI saved: $value", Toast.LENGTH_SHORT)
+            restartWarpForSniChange("WARP restarted with new SNI")
+        }
+
+        b.settingsActivityWarpSniResetBtn.setOnClickListener {
+            val default = "cloudflare.com"
+            val previous = persistentState.warpSpoofedSni
+            persistentState.warpSpoofedSni = default
+            b.settingsActivityWarpSniEdit.setText(default)
+
+            if (default == previous) {
+                showToastUiCentered(this, "Already at default: $default", Toast.LENGTH_SHORT)
+                return@setOnClickListener
+            }
+            showToastUiCentered(this, "SNI reset to $default", Toast.LENGTH_SHORT)
+            restartWarpForSniChange("WARP restarted with default SNI")
+        }
+
         // Switch listener is attached (and re-attached safely) in updateWarpUi()
         // ===== END WARP SECTION =====
 
@@ -400,6 +433,32 @@ class ProxySettingsActivity : AppCompatActivity(R.layout.fragment_proxy_configur
                 UsqueManager.stopSocksProxy()
                 appConfig.removeProxy(AppConfig.ProxyType.SOCKS5, AppConfig.ProxyProvider.CUSTOM)
                 persistentState.usqueEnabled = false
+                updateWarpUi()
+            }
+        }
+    }
+
+        /**
+     * If WARP is currently running, stop the SOCKS proxy, briefly wait for the port
+     * to free, and start it again so the new SNI value takes effect immediately.
+     * No-op when WARP is not running. Always refreshes the WARP status row.
+     */
+    private fun restartWarpForSniChange(successMsg: String) {
+        if (!(persistentState.usqueEnabled && UsqueManager.isRunning())) {
+            updateWarpUi()
+            return
+        }
+        io {
+            UsqueManager.stopSocksProxy()
+            kotlinx.coroutines.delay(500)
+            val started = UsqueManager.startSocksProxy(this@ProxySettingsActivity)
+            uiCtx {
+                showToastUiCentered(
+                    this@ProxySettingsActivity,
+                    if (started) successMsg
+                    else "WARP restart failed — toggle the switch manually",
+                    Toast.LENGTH_SHORT
+                )
                 updateWarpUi()
             }
         }

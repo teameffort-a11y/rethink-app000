@@ -716,5 +716,9 @@ class PersistentState(context: Context) : SimpleKrate(context), KoinComponent {
 
     var customModeOrIpChanged by booleanPref("custom_lan_mode_ip_changed").withDefault<Boolean>(false)
     var usqueEnabled by booleanPref("pref_usque_enabled").withDefault<Boolean>(false)
-}
+
+      // SNI override sent in the QUIC ClientHello of the WARP MASQUE tunnel.
+      // Defaults to "cloudflare.com". Capped at 20 chars in the UI.
+      var warpSpoofedSni by stringPref("pref_warp_spoofed_sni").withDefault<String>("cloudflare.com")
+  }
 
