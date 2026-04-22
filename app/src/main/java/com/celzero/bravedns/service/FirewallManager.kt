@@ -38,6 +38,8 @@ import com.google.common.cache.RemovalCause
 import com.google.common.cache.RemovalListener
 import com.google.common.collect.HashMultimap
 import com.google.common.collect.Multimap
+import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -296,8 +298,14 @@ object FirewallManager : KoinComponent {
 
         var appInfos: Multimap<Int, AppInfo> = HashMultimap.create()
 
-        // TODO: protect access to the foregroundUids (read/write)
-        @Volatile var foregroundUids: HashSet<Int> = HashSet()
+        // SECURITY (VULN-D): Use a ConcurrentHashMap-backed Set so concurrent
+        // add/remove/contains from foreground tracking and firewall decision paths
+        // never observe a torn HashMap state. The previous `@Volatile HashSet`
+        // only published the *reference* atomically and offered no protection on
+        // the underlying buckets, leading to incorrect foreground checks under
+        // load (and rule misfires) on weakly-ordered ARM devices.
+        val foregroundUids: MutableSet<Int> =
+            Collections.newSetFromMap(ConcurrentHashMap<Int, Boolean>())
 
         var appInfosLiveData: MutableLiveData<Collection<AppInfo>> = MutableLiveData()
 
@@ -665,6 +673,44 @@ object FirewallManager : KoinComponent {
         }
     }
 
+    /**
+     * SECURITY (VULN-C): When Android assigns a recycled UID to a freshly installed
+     * package whose name does NOT match a previously tombstoned package on the same
+     * UID, the new app must NOT inherit the tombstone's firewall rules. Call this
+     * before inserting a new app row so any stale tombstone with `|tombstoneUid| ==
+     * newUid` and a different package name is purged from cache and DB.
+     */
+    suspend fun purgeTombstoneIfDifferentPackage(newUid: Int, newPkg: String): Boolean {
+        if (newUid <= 0 || newPkg.isEmpty()) return false
+        val tombstoneUid = -1 * newUid // tombstone rows store negated uid
+        var purged = false
+        mutex.withLock {
+            val iter = appInfos.get(tombstoneUid).iterator()
+            while (iter.hasNext()) {
+                val ai = iter.next()
+                if (ai.tombstoneTs > 0L && ai.packageName != newPkg) {
+                    Logger.w(
+                        LOG_TAG_FIREWALL,
+                        "AUDIT (VULN-C): purging tombstoned rules for ${ai.packageName} " +
+                                "(uid=$tombstoneUid) because UID $newUid is being reused by $newPkg"
+                    )
+                    iter.remove()
+                    purged = true
+                }
+            }
+        }
+        if (purged) {
+            // best-effort DB cleanup; AppInfoRepository keys by uid so we can delete by uid
+            try {
+                db.deletePackage(tombstoneUid, null)
+            } catch (e: Throwable) {
+                Logger.w(LOG_TAG_FIREWALL, "purgeTombstone: db delete failed: ${e.message}")
+            }
+            informObservers()
+        }
+        return purged
+    }
+
     suspend fun updateUidAndResetTombstone(oldUid: Int, newUid: Int, pkg: String) {
         // while updating the package reset the tombstone timestamp
         var cacheok = false
@@ -773,6 +819,17 @@ object FirewallManager : KoinComponent {
             LOG_TAG_FIREWALL,
             "Apply firewall rule for uid: ${uid}, ${firewallStatus.name}, ${connectionStatus.name}"
         )
+        // SECURITY (VULN-F): BYPASS_DNS_FIREWALL skips ALL rules (incl. logging).
+        // Emit a high-visibility audit line every time it is granted/changed so an
+        // operator reviewing logs can detect a malicious or social-engineered grant.
+        if (firewallStatus == FirewallStatus.BYPASS_DNS_FIREWALL) {
+            val pkgs = getPackageNamesByUid(uid).joinToString(",")
+            Logger.w(
+                LOG_TAG_FIREWALL,
+                "AUDIT: BYPASS_DNS_FIREWALL granted to uid=$uid pkgs=[$pkgs]. " +
+                        "This app will skip ALL firewall+DNS rules and will NOT appear in logs."
+            )
+        }
         if (isUnknownPackage(uid) && firewallStatus.isExclude()) {
             Logger.w(LOG_TAG_FIREWALL, "Cannot exclude unknown package: $uid")
             return

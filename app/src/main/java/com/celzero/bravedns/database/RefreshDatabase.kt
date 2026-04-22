@@ -477,6 +477,11 @@ internal constructor(
             return
         }
         if (ai != null) {
+            // SECURITY (VULN-C): If Android recycled this UID and a tombstone with a
+            // DIFFERENT package still holds firewall rules for it, purge the
+            // tombstone before inserting so the new app does not inherit
+            // BYPASS/ALLOW/etc. from a previously-uninstalled app.
+            FirewallManager.purgeTombstoneIfDifferentPackage(ai.uid, ai.packageName)
             // uid may be different from the one in ai, if the app is installed in a different user
             insertApp(ai)
             logEvent(Severity.LOW, "new app installed", "inserted app ${ai.packageName}, uid: ${ai.uid}")

@@ -394,11 +394,59 @@ internal constructor(
                     "0"
                 }
                 PcapMode.EXTERNAL_FILE -> {
-                    path
+                    // SECURITY (VULN-H): Reject pcap output paths that escape the
+                    // app-private storage sandbox. A world-readable destination
+                    // (e.g. /sdcard, /storage/emulated/0) would let any app with
+                    // READ_EXTERNAL_STORAGE/MANAGE_EXTERNAL_STORAGE tail every
+                    // packet flowing through the VPN in real time. We restrict
+                    // writes to filesDir or the app-scoped getExternalFilesDir().
+                    if (!isPathInsideAppPrivateDirs(path)) {
+                        Logger.w(
+                            LOG_TAG_VPN,
+                            "Refusing pcap path outside app-private storage: $path"
+                        )
+                        ""
+                    } else {
+                        path
+                    }
                 }
             }
-        persistentState.pcapMode = mode
+        // If we rejected an EXTERNAL_FILE path, fall back to NONE to avoid a
+        // half-configured state where mode says "write to file" but path is empty.
+        val effectiveMode =
+            if (PcapMode.getPcapType(mode) == PcapMode.EXTERNAL_FILE && pcapFilePath.isEmpty()) {
+                PcapMode.NONE.id
+            } else {
+                mode
+            }
+        persistentState.pcapMode = effectiveMode
         persistentState.pcapFilePath = pcapFilePath
+    }
+
+    /**
+     * Returns true if [path] is within either the app's internal filesDir or one of
+     * the app-scoped external files directories. Uses canonical paths so symlinks
+     * and `..` segments cannot trick the check.
+     */
+    private fun isPathInsideAppPrivateDirs(path: String): Boolean {
+        if (path.isBlank()) return false
+        return try {
+            val target = java.io.File(path).canonicalFile
+            val allowed = mutableListOf<java.io.File>()
+            allowed += context.filesDir.canonicalFile
+            // getExternalFilesDirs may contain nulls on devices without secondary storage
+            context.getExternalFilesDirs(null)?.forEach { dir ->
+                if (dir != null) allowed += dir.canonicalFile
+            }
+            allowed.any { root ->
+                val rootPath = root.path + java.io.File.separator
+                val targetPath = target.path
+                targetPath == root.path || targetPath.startsWith(rootPath)
+            }
+        } catch (e: Exception) {
+            Logger.w(LOG_TAG_VPN, "pcap path validation failed for $path: ${e.message}")
+            false
+        }
     }
 
     fun getPcapFilePath(): String {
