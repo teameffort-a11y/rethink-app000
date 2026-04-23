@@ -2670,24 +2670,62 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
         vpnAdapter?.setDnsAlg()
     }
 
+    // SECURITY (VULN-A/E, defense-in-depth for native UAF / panic during teardown):
+    // a guard so concurrent triggers (user toggle, network change, OOM, system stop,
+    // firestack-callback failure) cannot race into stopVpnAdapter()/closeTun() twice.
+    // Without this, the JNI side has been observed to dereference freed go-side state
+    // when two threads race the disconnect call, producing SIGSEGV in production. We
+    // also widen the catch to Throwable so a JNI/Go-side panic surfaced via a Java
+    // error (e.g. UnsatisfiedLinkError, NoSuchMethodError, OutOfMemoryError) does not
+    // leak past the service boundary and crash the process — a crash here would also
+    // tear down the VPN, defeating the lockdown promise.
+    private val teardownInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+
     fun signalStopService(reason: String, userInitiated: Boolean = true) {
         if (!userInitiated) notifyUserOnVpnFailure()
-        io(reason) { stopVpnAdapter() }
-        eventLogger.logHigh(EventType.VPN_STOP, "vpn service destroyed",
-                    EventSource.SERVICE, userAction = userInitiated, details = "vpn destroyed")
-        stopSelf()
+        if (!teardownInFlight.compareAndSet(false, true)) {
+            Logger.w(LOG_TAG_VPN, "AUDIT (VULN-A): teardown already in flight, ignoring duplicate signalStopService($reason)")
+            return
+        }
+        io(reason) {
+            try {
+                stopVpnAdapter()
+            } catch (t: Throwable) {
+                Logger.crash(LOG_TAG_VPN, "AUDIT (VULN-A): swallowed throwable in stopVpnAdapter: ${t.message}", t)
+            }
+        }
+        try {
+            eventLogger.logHigh(
+                EventType.VPN_STOP, "vpn service destroyed",
+                EventSource.SERVICE, userAction = userInitiated, details = "vpn destroyed"
+            )
+        } catch (t: Throwable) {
+            Logger.crash(LOG_TAG_VPN, "AUDIT (VULN-A): eventLogger threw on stop: ${t.message}", t)
+        }
+        try {
+            stopSelf()
+        } catch (t: Throwable) {
+            Logger.crash(LOG_TAG_VPN, "AUDIT (VULN-A): stopSelf threw: ${t.message}", t)
+        }
         Logger.i(LOG_TAG_VPN, "stopped vpn adapter & service: $reason, $userInitiated")
     }
 
     private suspend fun stopVpnAdapter() =
         withContext(CoroutineName("stopVpn") + serializer) {
-            if (vpnAdapter == null) {
+            // snapshot + null the field before calling into JNI so any other coroutine
+            // arriving here sees a null adapter and skips the disconnect (defense
+            // against UAF when two threads race closeTun on the same go-side handle).
+            val adapter = vpnAdapter
+            vpnAdapter = null
+            if (adapter == null) {
                 Logger.i(LOG_TAG_VPN, "vpn adapter already stopped")
                 return@withContext
             }
-
-            vpnAdapter?.closeTun()
-            vpnAdapter = null
+            try {
+                adapter.closeTun()
+            } catch (t: Throwable) {
+                Logger.crash(LOG_TAG_VPN, "AUDIT (VULN-A): closeTun threw: ${t.message}", t)
+            }
             Logger.i(LOG_TAG_VPN, "stop vpn adapter")
         }
 
@@ -4958,6 +4996,38 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
         logd("flow: $_uid, $src, $dst, $realIps, $d, $blocklists")
         handleVpnLockdownStateAsync()
 
+        // SECURITY (VULN-B, ICMP exfil channel): even though firestack is supposed to drop
+        // ICMP at the TUN when persistentState.blockIcmp is true, defense-in-depth: if a
+        // future firestack revision starts dispatching ICMP through flow(), refuse it
+        // here as well. This ensures a "fully blocked" app can never use ICMP echo as a
+        // covert data channel. Returning Backend.Block makes the firestack flow handler
+        // drop the packet at the gVisor stack input.
+        if (persistentState.blockIcmp && isIcmpProtocol(protocol)) {
+            Logger.w(
+                LOG_TAG_VPN,
+                "AUDIT (VULN-B): blocking ICMP at flow() for uid=$_uid src=$src dst=$dst proto=$protocol"
+            )
+            val srcIpPort0 = parseIpAndPort(src.tos())
+            val dstIpPort0 = parseIpAndPort(dst.tos())
+            val cm0 = createConnTrackerMetaData(
+                FirewallManager.appId(_uid, isPrimaryUser()),
+                FirewallManager.userId(FirewallManager.appId(_uid, isPrimaryUser())),
+                srcIpPort0.first,
+                srcIpPort0.second,
+                dstIpPort0.first,
+                dstIpPort0.second,
+                protocol,
+                proxyDetails = "",
+                blocklists.tos() ?: "",
+                d.tos()?.split(",")?.firstOrNull(),
+                Utilities.getRandomString(8),
+                ConnectionTracker.ConnType.METERED
+            )
+            cm0.isBlocked = true
+            cm0.blockedByRule = FirewallRuleset.RULE1.id
+            return@go2kt persistAndConstructFlowResponse(cm0, Backend.Block, cm0.connId, cm0.uid)
+        }
+
         // in case of double loopback, all traffic will be part of rinr instead of just rethink's
         // own traffic. flip the doubleLoopback flag to true if we need that behavior
         val doubleLoopback = false
@@ -5116,8 +5186,29 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
         return@go2kt determineProxyDetails(cm, doubleLoopback, rinr)
     }
 
+    // SECURITY (VULN-B): centralised ICMP detection so flow() and inflow() agree on
+    // what protocol numbers are ICMP. ICMP=1 (IPv4), ICMPv6=58.
+    private fun isIcmpProtocol(protocol: Int): Boolean {
+        return protocol == Protocol.ICMP.protocolType || protocol == Protocol.ICMPV6.protocolType
+    }
+
     override fun inflow(protocol: Int, recvdUid: Int, src: Gostr?, dst: Gostr?): Mark =
         go2kt(inflowDispatcher) {
+            // SECURITY (VULN-B): block inbound ICMP at the firewall callback when the
+            // user has block_icmp set (default true). Same defense-in-depth rationale
+            // as the outbound flow() check above.
+            if (persistentState.blockIcmp && isIcmpProtocol(protocol)) {
+                Logger.w(
+                    LOG_TAG_VPN,
+                    "AUDIT (VULN-B): blocking inbound ICMP at inflow() uid=$recvdUid src=$src dst=$dst proto=$protocol"
+                )
+                val m = Mark()
+                m.pidcsv = Backend.Block
+                m.cid = Utilities.getRandomString(8)
+                m.uid = FirewallManager.appId(recvdUid, isPrimaryUser()).toString()
+                return@go2kt m
+            }
+
             val srcIpPort = parseIpAndPort(src.tos())
             val dstIpPort = parseIpAndPort(dst.tos())
             val srcIp = srcIpPort.first

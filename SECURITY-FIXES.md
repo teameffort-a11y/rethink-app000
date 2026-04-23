@@ -96,3 +96,80 @@ Refusing pcap path outside app-private storage: <path>
 
 Each fix is also commented inline with a `SECURITY (VULN-x)` marker so it can
 be located via `grep -rn "SECURITY (VULN-"`.
+
+---
+
+## Round 3 (April 2026 audit, branch `tests`)
+
+This round addresses four additional findings raised in the round-3 OWASP-style
+review. All marked inline with `SECURITY (VULN-...)` comments matching the
+ranks in the audit report.
+
+### #1 — Insecure Deserialization on backup restore (CWE-502, CRITICAL)
+
+**Where:** `backup/BackupAgent.kt`, `backup/RestoreAgent.kt`
+
+**Was:** Shared-preferences inside a `.rbk` archive were serialised with
+`java.io.ObjectOutputStream` and read back with `java.io.ObjectInputStream`
+on a user-supplied file. That is a classic Java deserialization ACE
+primitive — any gadget chain available on the Android classpath (framework,
+Glide, Gson, OkHttp, Koin, ...) can be triggered by a crafted `.rbk`,
+executing attacker-controlled code in the Rethink process which holds VPN,
+network-visibility, and EncryptedFile master keys.
+
+**Fix:**
+- Backup writes a strict JSON envelope prefixed with the magic header
+  `RTHK_PREFS_V2_JSON\n`. Only scalar pref types (Bool/Int/Long/Float/String/
+  Set<String>) are exported.
+- Restore parses with `org.json` (no class instantiation), explicitly
+  rejects the legacy `0xACED` ObjectStream magic and any non-matching
+  magic header, and caps prefs blob at 8 MiB.
+- minSdk=23 means `ObjectInputFilter` is unavailable; we drop legacy
+  binary backups entirely. Users must take a fresh backup with this build.
+
+### #2 — Zip Slip on backup restore (CWE-22, HIGH)
+
+Already documented above (round-1/2). Round-3 audit confirmed the fix in
+`BackupHelper.unzip()` is correct: canonical-path validation, name
+sanitization, zip-bomb size caps, and AUDIT logging.
+
+### #5 — ICMP not enforced at the firewall callbacks (VULN-B, MEDIUM)
+
+**Where:** `service/BraveVPNService.kt` `flow()` and `inflow()`
+
+**Was:** `persistentState.blockIcmp` was only consulted inside firestack /
+gVisor at the TUN layer. If a future firestack revision (or a fork that
+patches gVisor) starts dispatching ICMP through the Kotlin `flow()` /
+`inflow()` callbacks, ICMP traffic would slip the user-visible "block ICMP"
+toggle and become a covert exfiltration channel.
+
+**Fix:** Defense-in-depth: both `flow()` and `inflow()` now early-return
+`Backend.Block` for protocol 1 (ICMP) and 58 (ICMPv6) when
+`persistentState.blockIcmp` is true, log an `AUDIT (VULN-B)` line, and
+persist a synthetic ConnTrackerMetaData so the block surfaces in the UI
+log just like other firewall rules.
+
+### #6 — UAF / panic during VPN teardown (VULN-A/E, HIGH availability)
+
+**Where:** `service/BraveVPNService.kt` `signalStopService()` / `stopVpnAdapter()`,
+`net/go/GoVpnAdapter.kt` `closeTun()`
+
+**Was:** Two concurrent triggers (user toggle, network-callback driven
+restart, system stop, firestack error path) could race into
+`tunnel.disconnect()` on the same go-side handle. Production crash logs
+showed SIGSEGV / Go panics. A crash here drops the lockdown VPN — the
+worst possible failure mode for this app.
+
+**Fix:**
+- `BraveVPNService` adds an `AtomicBoolean teardownInFlight` and ignores
+  duplicate `signalStopService` calls. It snapshots and nulls
+  `vpnAdapter` *before* calling into JNI so a racing coroutine sees a
+  null adapter.
+- `GoVpnAdapter.closeTun()` adds an `AtomicBoolean closeTunInFlight`
+  guard (single-shot per adapter instance) and widens the catch from
+  `Exception` to `Throwable` so JNI-surfaced `Error`s
+  (UnsatisfiedLinkError, OOM, NoSuchMethodError, InternalError) cannot
+  propagate and crash the Service.
+- Surrounding `eventLogger`/`stopSelf`/`logEvent` calls are individually
+  wrapped so a logging failure cannot prevent shutdown.
+

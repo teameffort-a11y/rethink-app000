@@ -1575,33 +1575,62 @@ class GoVpnAdapter : KoinComponent {
         }
     }
 
+    // SECURITY (VULN-A/E, defense-in-depth for native UAF / panic at teardown):
+    // closeTun() can be invoked concurrently from BraveVPNService.signalStopService(),
+    // network-callback driven restartVpn(), system stopService, and firestack error
+    // paths. Two concurrent calls into tunnel.disconnect() reach into the same go-side
+    // intra.Tunnel handle and have produced SIGSEGV / panic in production. We now
+    // serialise with an AtomicBoolean and widen the catch to Throwable so a JNI/Go
+    // panic surfaced as a Java Error (UnsatisfiedLinkError, OOM, NoSuchMethodError,
+    // InternalError) does not propagate and crash the Service — a crash here drops
+    // the lockdown VPN, which is the worst possible failure mode for this app.
+    private val closeTunInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+
     suspend fun closeTun() {
+        if (!closeTunInFlight.compareAndSet(false, true)) {
+            Logger.w(LOG_TAG_VPN, "$TAG AUDIT (VULN-A): closeTun already in flight, ignoring duplicate")
+            return
+        }
         try {
-            if (tunnel.isConnected) {
+            val connected = try { tunnel.isConnected } catch (t: Throwable) {
+                Logger.e(LOG_TAG_VPN, "$TAG AUDIT (VULN-A): isConnected threw: ${t.message}", t)
+                false
+            }
+            if (connected) {
                 // this is not the only place where tunnel is disconnected
                 // netstack can also close the tunnel on errors
-                tunnel.disconnect()
-                logEvent(
-                    Severity.MEDIUM,
-                    "tunnel disconnected",
-                    "VPN tunnel disconnected successfully"
-                )
+                try {
+                    tunnel.disconnect()
+                    logEvent(
+                        Severity.MEDIUM,
+                        "tunnel disconnected",
+                        "VPN tunnel disconnected successfully"
+                    )
+                } catch (t: Throwable) {
+                    Logger.e(LOG_TAG_VPN, "$TAG AUDIT (VULN-A): disconnect threw: ${t.message}", t)
+                    try {
+                        logEvent(
+                            Severity.HIGH,
+                            "tunnel disconnect failure",
+                            "Error disconnecting VPN tunnel: ${t.message}"
+                        )
+                    } catch (_: Throwable) { /* best effort */ }
+                }
             } else {
                 Logger.i(LOG_TAG_VPN, "$TAG tunnel already disconnected")
-                logEvent(
-                    Severity.LOW,
-                    "tunnel already disconnected",
-                    "VPN tunnel was already disconnected"
-                )
+                try {
+                    logEvent(
+                        Severity.LOW,
+                        "tunnel already disconnected",
+                        "VPN tunnel was already disconnected"
+                    )
+                } catch (_: Throwable) { /* best effort */ }
             }
-        } catch (e: Exception) {
-            Logger.e(LOG_TAG_VPN, "$TAG err disconnect tunnel: ${e.message}", e)
-            logEvent(
-                Severity.HIGH,
-                "tunnel disconnect failure",
-                "Error disconnecting VPN tunnel: ${e.message}"
-            )
+        } catch (t: Throwable) {
+            Logger.crash(LOG_TAG_VPN, "$TAG AUDIT (VULN-A): unexpected throwable in closeTun: ${t.message}", t)
         }
+        // intentionally do NOT reset closeTunInFlight: this adapter instance is
+        // single-shot; BraveVPNService.stopVpnAdapter() drops the reference.
     }
 
     private fun newDefaultTransport(url: String): DefaultDNS? {
