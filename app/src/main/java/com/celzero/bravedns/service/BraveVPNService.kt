@@ -2691,7 +2691,7 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
             try {
                 stopVpnAdapter()
             } catch (t: Throwable) {
-                Logger.crash(LOG_TAG_VPN, "AUDIT (VULN-A): swallowed throwable in stopVpnAdapter: ${t.message}", t)
+                Logger.crash(LOG_TAG_VPN, "AUDIT (VULN-A): swallowed throwable in stopVpnAdapter: ${t.message}", t as? Exception)
             }
         }
         try {
@@ -2700,12 +2700,12 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
                 EventSource.SERVICE, userAction = userInitiated, details = "vpn destroyed"
             )
         } catch (t: Throwable) {
-            Logger.crash(LOG_TAG_VPN, "AUDIT (VULN-A): eventLogger threw on stop: ${t.message}", t)
+            Logger.crash(LOG_TAG_VPN, "AUDIT (VULN-A): eventLogger threw on stop: ${t.message}", t as? Exception)
         }
         try {
             stopSelf()
         } catch (t: Throwable) {
-            Logger.crash(LOG_TAG_VPN, "AUDIT (VULN-A): stopSelf threw: ${t.message}", t)
+            Logger.crash(LOG_TAG_VPN, "AUDIT (VULN-A): stopSelf threw: ${t.message}", t as? Exception)
         }
         Logger.i(LOG_TAG_VPN, "stopped vpn adapter & service: $reason, $userInitiated")
     }
@@ -2724,7 +2724,7 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
             try {
                 adapter.closeTun()
             } catch (t: Throwable) {
-                Logger.crash(LOG_TAG_VPN, "AUDIT (VULN-A): closeTun threw: ${t.message}", t)
+                Logger.crash(LOG_TAG_VPN, "AUDIT (VULN-A): closeTun threw: ${t.message}", t as? Exception)
             }
             Logger.i(LOG_TAG_VPN, "stop vpn adapter")
         }

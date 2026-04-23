@@ -1593,7 +1593,7 @@ class GoVpnAdapter : KoinComponent {
         }
         try {
             val connected = try { tunnel.isConnected } catch (t: Throwable) {
-                Logger.e(LOG_TAG_VPN, "$TAG AUDIT (VULN-A): isConnected threw: ${t.message}", t)
+                Logger.e(LOG_TAG_VPN, "$TAG AUDIT (VULN-A): isConnected threw: ${t.message}", t as? Exception)
                 false
             }
             if (connected) {
@@ -1607,7 +1607,7 @@ class GoVpnAdapter : KoinComponent {
                         "VPN tunnel disconnected successfully"
                     )
                 } catch (t: Throwable) {
-                    Logger.e(LOG_TAG_VPN, "$TAG AUDIT (VULN-A): disconnect threw: ${t.message}", t)
+                    Logger.e(LOG_TAG_VPN, "$TAG AUDIT (VULN-A): disconnect threw: ${t.message}", t as? Exception)
                     try {
                         logEvent(
                             Severity.HIGH,
@@ -1627,7 +1627,7 @@ class GoVpnAdapter : KoinComponent {
                 } catch (_: Throwable) { /* best effort */ }
             }
         } catch (t: Throwable) {
-            Logger.crash(LOG_TAG_VPN, "$TAG AUDIT (VULN-A): unexpected throwable in closeTun: ${t.message}", t)
+            Logger.crash(LOG_TAG_VPN, "$TAG AUDIT (VULN-A): unexpected throwable in closeTun: ${t.message}", t as? Exception)
         }
         // intentionally do NOT reset closeTunInFlight: this adapter instance is
         // single-shot; BraveVPNService.stopVpnAdapter() drops the reference.
