@@ -124,7 +124,7 @@ class WgConfigAdapter(private val context: Context, private val listener: DnsSta
             b.interfaceNameText.text = config.name
             b.interfaceNameText.isSelected = true
             b.interfaceIdText.text = context.getString(R.string.single_argument_parenthesis, config.id.toString())
-            b.interfaceSwitch.isChecked = config.isActive && VpnController.hasTunnel()
+            b.interfaceSwitch.isChecked = config.isActive
             setupClickListeners(config)
             val appsCount = ProxyManager.getAppCountForProxy(ID_WG_BASE + config.id)
             updateUi(config, appsCount)
@@ -148,7 +148,6 @@ class WgConfigAdapter(private val context: Context, private val listener: DnsSta
             b.interfaceActiveLayout.visibility = View.GONE
             b.interfaceDetailCard.strokeColor = fetchColor(context, R.attr.background)
             b.interfaceDetailCard.strokeWidth = 0
-            b.interfaceSwitch.isChecked = false
             b.protocolInfoChipGroup.visibility = View.GONE
             b.interfaceStatus.visibility = View.VISIBLE
             b.interfaceStatus.text =
@@ -541,20 +540,6 @@ class WgConfigAdapter(private val context: Context, private val listener: DnsSta
         }
 
         private suspend fun disableWgIfPossible(cfg: WgConfigFilesImmutable) {
-            if (!VpnController.hasTunnel()) {
-                Logger.i(LOG_TAG_PROXY, "$TAG VPN not active, cannot enable WireGuard")
-                uiCtx {
-                    Utilities.showToastUiCentered(
-                        context,
-                        ERR_CODE_VPN_NOT_ACTIVE +
-                            context.getString(R.string.settings_socks5_vpn_disabled_error),
-                        Toast.LENGTH_LONG
-                    )
-                    // reset the check box
-                    b.interfaceSwitch.isChecked = true
-                }
-                return
-            }
 
             if (WireguardManager.canDisableConfig(cfg)) {
                 WireguardManager.disableConfig(cfg)
@@ -586,20 +571,6 @@ class WgConfigAdapter(private val context: Context, private val listener: DnsSta
 
         private suspend fun enableWgIfPossible(cfg: WgConfigFilesImmutable) {
 
-            if (!VpnController.hasTunnel()) {
-                Logger.i(LOG_TAG_PROXY, "$TAG VPN not active, cannot enable WireGuard")
-                uiCtx {
-                    Utilities.showToastUiCentered(
-                        context,
-                        ERR_CODE_VPN_NOT_ACTIVE +
-                            context.getString(R.string.settings_socks5_vpn_disabled_error),
-                        Toast.LENGTH_LONG
-                    )
-                    // reset the check box
-                    b.interfaceSwitch.isChecked = false
-                }
-                return
-            }
 
             if (!WireguardManager.canEnableProxy()) {
                 Logger.i(LOG_TAG_PROXY, "$TAG not in DNS+Firewall mode, cannot enable WireGuard")

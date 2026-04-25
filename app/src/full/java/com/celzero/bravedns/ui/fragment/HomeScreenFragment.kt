@@ -1640,7 +1640,7 @@ class HomeScreenFragment : Fragment(R.layout.fragment_home_screen) {
     private fun startVpnService() {
         // runtime permission for notification (Android 13)
         getNotificationPermissionIfNeeded()
-        VpnController.start(requireContext(), true)
+        VpnController.start(requireContext()) // fix: manual start should always forward intent to service
     }
 
     private fun getNotificationPermissionIfNeeded() {

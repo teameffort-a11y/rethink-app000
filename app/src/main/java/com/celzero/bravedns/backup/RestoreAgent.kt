@@ -49,7 +49,36 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.IOException
 import java.io.InputStream
-import java.io.ObjectInputStream
+
+// SECURITY (VULN, Insecure Deserialization / CWE-502): see notes in BackupAgent.
+// The .rbk shared-pref blob is now a strict JSON envelope prefixed with the magic
+// "RTHK_PREFS_V2_JSON\n". Any other content (including the legacy ObjectStream
+// magic 0xACED) is refused without ever instantiating arbitrary classes.
+private const val RTHK_PREFS_MAGIC = "RTHK_PREFS_V2_JSON\n"
+private const val RTHK_PREFS_MAX_BYTES = 8 * 1024 * 1024 // 8 MiB hard cap
+
+private fun isLegacyObjectStream(bytes: ByteArray): Boolean {
+    // java ObjectStream STREAM_MAGIC is 0xACED followed by version 0x0005.
+    return bytes.size >= 2 && (bytes[0].toInt() and 0xff) == 0xac && (bytes[1].toInt() and 0xff) == 0xed
+}
+
+private fun readPrefsBackupBytes(prefsBackupFile: java.io.File): ByteArray? {
+    if (!prefsBackupFile.exists()) return null
+    val len = prefsBackupFile.length()
+    if (len <= 0L || len > RTHK_PREFS_MAX_BYTES) return null
+    return FileInputStream(prefsBackupFile).use { it.readBytes() }
+}
+
+private fun parsePrefsJsonEnvelope(bytes: ByteArray): org.json.JSONObject? {
+    val magic = RTHK_PREFS_MAGIC.toByteArray(Charsets.UTF_8)
+    if (bytes.size < magic.size) return null
+    for (i in magic.indices) if (bytes[i] != magic[i]) return null
+    val jsonText = String(bytes, magic.size, bytes.size - magic.size, Charsets.UTF_8)
+    return try {
+        val obj = org.json.JSONObject(jsonText)
+        if (obj.optString("format") != "RTHK_PREFS_JSON") null else obj
+    } catch (_: Exception) { null }
+}
 
 class RestoreAgent(val context: Context, workerParams: WorkerParameters) :
     CoroutineWorker(context, workerParams), KoinComponent {
@@ -380,41 +409,43 @@ class RestoreAgent(val context: Context, workerParams: WorkerParameters) :
 
         val minVersionSupported = 24
 
-        val input: ObjectInputStream?
         val prefsBackupFile = File(tempDirectory, SHARED_PREFS_BACKUP_FILE_NAME)
-        try {
-            input = ObjectInputStream(FileInputStream(prefsBackupFile))
-
-            @Suppress("UNCHECKED_CAST")
-            val pref: Map<String, *> = input.readObject() as Map<String, *>
-
-            for (e in pref.entries) {
-                val v: Any? = e.value
-                val key: String = e.key
-
-                if (key == PersistentState.APP_VERSION) {
-                    val appVersion = v as Int
+        val bytes = readPrefsBackupBytes(prefsBackupFile) ?: run {
+            Logger.w(LOG_TAG_BACKUP_RESTORE, "AUDIT: prefs backup missing or too large")
+            return false
+        }
+        if (isLegacyObjectStream(bytes)) {
+            Logger.w(
+                LOG_TAG_BACKUP_RESTORE,
+                "AUDIT (CWE-502): refusing legacy ObjectStream prefs backup; export a new backup with this build."
+            )
+            return false
+        }
+        val envelope = parsePrefsJsonEnvelope(bytes) ?: run {
+            Logger.w(LOG_TAG_BACKUP_RESTORE, "AUDIT (CWE-502): prefs backup has unexpected format; refusing.")
+            return false
+        }
+        return try {
+            val entries = envelope.optJSONArray("entries") ?: return false
+            for (i in 0 until entries.length()) {
+                val item = entries.optJSONObject(i) ?: continue
+                val key = item.optString("k", "")
+                val type = item.optString("t", "")
+                if (key == PersistentState.APP_VERSION && type == "int") {
+                    val appVersion = item.optInt("v", 0)
                     if (appVersion >= minVersionSupported) {
                         Logger.w(
                             LOG_TAG_BACKUP_RESTORE,
-                            "app version is less than minAppVersion, proceed with restore"
+                            "app version $appVersion >= min $minVersionSupported, proceed with restore"
                         )
                         return true
-                    } else {
-                        // no-op
                     }
-                } else {
-                    // no-op
                 }
             }
-            return false
+            false
         } catch (e: Exception) {
-            Logger.crash(
-                LOG_TAG_BACKUP_RESTORE,
-                "exception while restoring shared pref, reason? ${e.message}",
-                e
-            )
-            return false
+            Logger.crash(LOG_TAG_BACKUP_RESTORE, "AUDIT: error parsing prefs envelope, ${e.message}", e)
+            false
         }
     }
 
@@ -443,36 +474,57 @@ class RestoreAgent(val context: Context, workerParams: WorkerParameters) :
     }
 
     private fun restoreSharedPreferencesFromFile(tempDirectory: String?): Boolean {
-        var input: ObjectInputStream? = null
         val prefsBackupFile = File(tempDirectory, SHARED_PREFS_BACKUP_FILE_NAME)
         val currentSharedPreferences: SharedPreferences =
             PreferenceManager.getDefaultSharedPreferences(context)
 
         Logger.d(LOG_TAG_BACKUP_RESTORE, "shared pref file path: ${prefsBackupFile.path}")
         try {
-            input = ObjectInputStream(FileInputStream(prefsBackupFile))
+            val bytes = readPrefsBackupBytes(prefsBackupFile) ?: run {
+                Logger.w(LOG_TAG_BACKUP_RESTORE, "AUDIT: prefs backup missing or too large")
+                return false
+            }
+            if (isLegacyObjectStream(bytes)) {
+                Logger.w(
+                    LOG_TAG_BACKUP_RESTORE,
+                    "AUDIT (CWE-502): refusing legacy ObjectStream prefs backup; export a new backup with this build."
+                )
+                return false
+            }
+            val envelope = parsePrefsJsonEnvelope(bytes) ?: run {
+                Logger.w(LOG_TAG_BACKUP_RESTORE, "AUDIT (CWE-502): prefs backup has unexpected format; refusing.")
+                return false
+            }
+
+            val entries = envelope.optJSONArray("entries") ?: return false
             val prefsEditor = currentSharedPreferences.edit()
             prefsEditor.clear()
-            @Suppress("UNCHECKED_CAST")
-            val pref: Map<String, *> = input.readObject() as Map<String, *>
-
-            for (e in pref.entries) {
-                val v: Any? = e.value
-                val key: String = e.key
-
-                when (v) {
-                    is Boolean -> prefsEditor.putBoolean(key, (v as Boolean?)!!)
-                    is Float -> prefsEditor.putFloat(key, (v as Float?)!!)
-                    is Int -> prefsEditor.putInt(key, (v as Int?)!!)
-                    is Long -> prefsEditor.putLong(key, (v as Long?)!!)
-                    is String -> prefsEditor.putString(key, v as String?)
+            for (i in 0 until entries.length()) {
+                val item = entries.optJSONObject(i) ?: continue
+                val key = item.optString("k", "")
+                if (key.isEmpty()) continue
+                when (item.optString("t", "")) {
+                    "bool" -> prefsEditor.putBoolean(key, item.optBoolean("v", false))
+                    "int" -> prefsEditor.putInt(key, item.optInt("v", 0))
+                    "long" -> prefsEditor.putLong(key, item.optLong("v", 0L))
+                    "float" -> prefsEditor.putFloat(key, item.optDouble("v", 0.0).toFloat())
+                    "string" -> prefsEditor.putString(key, item.optString("v", ""))
+                    "stringset" -> {
+                        val arr = item.optJSONArray("v") ?: continue
+                        val set = LinkedHashSet<String>(arr.length())
+                        for (j in 0 until arr.length()) {
+                            val s = arr.optString(j, null) ?: continue
+                            set.add(s)
+                        }
+                        prefsEditor.putStringSet(key, set)
+                    }
+                    else -> {
+                        Logger.w(LOG_TAG_BACKUP_RESTORE, "AUDIT: unknown pref type for key='$key', skipping")
+                    }
                 }
             }
             prefsEditor.apply()
-            Logger.i(
-                LOG_TAG_BACKUP_RESTORE,
-                "completed restore of shared pref values, ${pref.entries}"
-            )
+            Logger.i(LOG_TAG_BACKUP_RESTORE, "completed restore of ${entries.length()} shared pref entries")
             return true
         } catch (e: Exception) {
             Logger.crash(
@@ -483,11 +535,6 @@ class RestoreAgent(val context: Context, workerParams: WorkerParameters) :
             return false
         } finally {
             deleteResidue(prefsBackupFile)
-            try {
-                input?.close()
-            } catch (e: IOException) {
-                // no-op
-            }
         }
     }
 }

@@ -357,7 +357,7 @@ class PersistentState(context: Context) : SimpleKrate(context), KoinComponent {
     var tcpKeepAlive by booleanPref("tcp_keep_alive").withDefault<Boolean>(false)
 
     // enable split dns, default on Android R and above, as we can identify app which is sending dns
-    var splitDns by booleanPref("split_dns").withDefault<Boolean>(isAtleastR())
+    var splitDns by booleanPref("split_dns").withDefault<Boolean>(false)
 
     // use system dns for undelegatedDomains
     var useSystemDnsForUndelegatedDomains by booleanPref("use_system_dns_for_undelegated_domains").withDefault<Boolean>(false)
@@ -426,10 +426,29 @@ class PersistentState(context: Context) : SimpleKrate(context), KoinComponent {
     // experimental feature to use max mtu
     var useMaxMtu by booleanPref("use_max_mtu").withDefault<Boolean>(false)
 
+    // SECURITY (VULN-B): Block all ICMP through the tunnel by default. ICMP packets
+    // are not run through the firewall flow callback in firestack, which lets a
+    // fully-blocked app exfiltrate data over ICMP echo. The Go bridge must consult
+    // this flag and drop ICMP unless the user has explicitly opted in.
+    var blockIcmp by booleanPref("block_icmp").withDefault<Boolean>(true)
+
+    // SECURITY (VULN-K): Cap DNS cache TTL and entry count to prevent a rogue
+    // resolver from filling memory with INT_MAX-TTL entries (which would OOM the
+    // VPN service and trigger a traffic leak). Values are advisory; the Go DNS
+    // cache must clamp accepted TTLs to [0, maxDnsCacheTtlSec] and evict when
+    // dnsCacheMaxEntries is exceeded.
+    var maxDnsCacheTtlSec by longPref("max_dns_cache_ttl_sec").withDefault<Long>(3600L)
+    var dnsCacheMaxEntries by intPref("dns_cache_max_entries").withDefault<Int>(10_000)
+
+    // SECURITY (VULN-G): When enabled, SSID-based WireGuard pause requires the
+    // current BSSID to match the BSSID first observed for that SSID (TOFU). This
+    // prevents an evil-twin AP that copies a known SSID from silently pausing the
+    // tunnel. Defaults to true.
+    var requireBssidMatchForSsid by booleanPref("require_bssid_match_ssid").withDefault<Boolean>(true)
+
     // set vpn builder to metered/unmetered
     var setVpnBuilderToMetered by booleanPref("set_vpn_builder_to_metered").withDefault<Boolean>(false)
-// WARP tunnel enabled state
-    var usqueWarpEnabled by booleanPref("usque_warp_enabled").withDefault<Boolean>(false)
+
     // debug settings, panic random
     var panicRandom by booleanPref("panic_random").withDefault<Boolean>(false)
 
@@ -697,5 +716,9 @@ class PersistentState(context: Context) : SimpleKrate(context), KoinComponent {
 
     var customModeOrIpChanged by booleanPref("custom_lan_mode_ip_changed").withDefault<Boolean>(false)
     var usqueEnabled by booleanPref("pref_usque_enabled").withDefault<Boolean>(false)
-}
+
+      // SNI override sent in the QUIC ClientHello of the WARP MASQUE tunnel.
+      // Defaults to "cloudflare.com". Capped at 20 chars in the UI.
+      var warpSpoofedSni by stringPref("pref_warp_spoofed_sni").withDefault<String>("cloudflare.com")
+  }
 

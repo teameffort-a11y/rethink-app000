@@ -1,10 +1,8 @@
 package com.celzero.bravedns.service
 
 import Logger
-import Logger.LOG_TAG_PROXY
 import android.content.Context
 import android.util.Log
-import com.google.firebase.crashlytics.FirebaseCrashlytics
 import java.io.File
 import java.io.StringWriter
 import kotlinx.coroutines.Dispatchers
@@ -109,7 +107,7 @@ object UsqueManager {
 
         } catch (e: Exception) {
             dlog(context, "EXCEPTION ${e.message}\n${e.stackTraceToString()}")
-            try { FirebaseCrashlytics.getInstance().recordException(e) } catch (_: Exception) {}
+            Logger.e(Logger.LOG_TAG_PROXY, "registerWithWarp exception", e)
             false
         }
     }
@@ -128,9 +126,26 @@ object UsqueManager {
             val configFile = File(ctx.filesDir, "config.json")
             dlog(ctx, "startSocksProxy: configExists=${configFile.exists()} size=${configFile.length()}")
 
-            val cmd = listOf(bin.absolutePath, "socks", "-b", SOCKS_HOST, "-p", SOCKS_PORT.toString(),
-                             "-c", configFile.absolutePath)
-            dlog(ctx, "startSocksProxy: cmd=${cmd.joinToString(" ")}")
+            // Apply user-configured SNI override (defaults to "cloudflare.com").
+              // Read at process-start time so the user's saved value is used for every restart.
+              val sni = try {
+                  org.koin.java.KoinJavaComponent
+                      .get<PersistentState>(PersistentState::class.java)
+                      .warpSpoofedSni.trim()
+              } catch (t: Throwable) {
+                  dlog(ctx, "startSocksProxy: SNI lookup failed: ${t.message}")
+                  ""
+              }
+              val cmd = mutableListOf(
+                  bin.absolutePath, "socks",
+                  "-b", SOCKS_HOST,
+                  "-p", SOCKS_PORT.toString(),
+                  "-c", configFile.absolutePath
+              )
+              if (sni.isNotEmpty()) {
+                  cmd += listOf("-s", sni)
+              }
+              dlog(ctx, "startSocksProxy: cmd=${cmd.joinToString(" ")}")
 
             val pb = ProcessBuilder(cmd).redirectErrorStream(false)
             pb.environment()["GODEBUG"] = "vgetrandom=off"
@@ -169,7 +184,7 @@ object UsqueManager {
 
         } catch (e: Exception) {
             dlog(ctx, "startSocksProxy: EXCEPTION ${e.message}\n${e.stackTraceToString()}")
-            try { FirebaseCrashlytics.getInstance().recordException(e) } catch (_: Exception) {}
+            Logger.e(Logger.LOG_TAG_PROXY, "startSocksProxy exception", e)
             false
         }
     }

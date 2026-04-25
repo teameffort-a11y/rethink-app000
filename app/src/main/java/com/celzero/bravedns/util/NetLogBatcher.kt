@@ -18,6 +18,7 @@ package com.celzero.bravedns.util
 
 import Logger.LOG_BATCH_LOGGER
 import android.util.Log
+import com.celzero.bravedns.RethinkDnsApplication
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
@@ -41,7 +42,7 @@ class NetLogBatcher<T, V>(
     private val updator: suspend (List<V>) -> Unit = { _ -> },
 ) {
     companion object {
-        private const val DEBUG = true
+        private val DEBUG get() = RethinkDnsApplication.DEBUG
     }
 
     // i keeps track of currently in-use buffer

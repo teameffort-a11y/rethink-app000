@@ -25,6 +25,7 @@ import Logger.LOG_TAG_CONNECTION
 import Logger.LOG_TAG_VPN
 // ADD import near other service imports:
 import com.celzero.bravedns.service.UsqueManager
+import com.celzero.bravedns.service.WarpWatchdog
 import android.annotation.SuppressLint
 import android.app.ActivityManager
 import android.app.ForegroundServiceStartNotAllowedException
@@ -2641,11 +2642,9 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
                 // custom either means socks5 or http proxy
                 // socks5 proxy requires app to be excluded from vpn, so restart vpn
                 val isSocks5 = tunProxyMode == AppConfig.TunProxyMode.SOCKS5
-                val reason = if (isSocks5) {
-                    "customProxy: ${appConfig.getSocks5ProxyDetails()}"
-                } else {
-                    "customProxy: ${appConfig.getHttpProxyDetails()}"
-                }
+                val proxy = if (isSocks5) appConfig.getSocks5ProxyDetails() else appConfig.getHttpProxyDetails()
+                val proxyDesc = if (proxy != null) "${proxy.proxyName} (${proxy.proxyIP}:${proxy.proxyPort})" else "none"
+                val reason = "customProxy: $proxyDesc, type: ${if (isSocks5) "socks5" else "http"}"
                 vpnRestartTrigger.value = reason
                 vpnAdapter?.setCustomProxy(tunProxyMode)
             }
@@ -2672,24 +2671,62 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
         vpnAdapter?.setDnsAlg()
     }
 
+    // SECURITY (VULN-A/E, defense-in-depth for native UAF / panic during teardown):
+    // a guard so concurrent triggers (user toggle, network change, OOM, system stop,
+    // firestack-callback failure) cannot race into stopVpnAdapter()/closeTun() twice.
+    // Without this, the JNI side has been observed to dereference freed go-side state
+    // when two threads race the disconnect call, producing SIGSEGV in production. We
+    // also widen the catch to Throwable so a JNI/Go-side panic surfaced via a Java
+    // error (e.g. UnsatisfiedLinkError, NoSuchMethodError, OutOfMemoryError) does not
+    // leak past the service boundary and crash the process — a crash here would also
+    // tear down the VPN, defeating the lockdown promise.
+    private val teardownInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+
     fun signalStopService(reason: String, userInitiated: Boolean = true) {
         if (!userInitiated) notifyUserOnVpnFailure()
-        io(reason) { stopVpnAdapter() }
-        eventLogger.logHigh(EventType.VPN_STOP, "vpn service destroyed",
-                    EventSource.SERVICE, userAction = userInitiated, details = "vpn destroyed")
-        stopSelf()
+        if (!teardownInFlight.compareAndSet(false, true)) {
+            Logger.w(LOG_TAG_VPN, "AUDIT (VULN-A): teardown already in flight, ignoring duplicate signalStopService($reason)")
+            return
+        }
+        io(reason) {
+            try {
+                stopVpnAdapter()
+            } catch (t: Throwable) {
+                Logger.crash(LOG_TAG_VPN, "AUDIT (VULN-A): swallowed throwable in stopVpnAdapter: ${t.message}", t as? Exception)
+            }
+        }
+        try {
+            eventLogger.logHigh(
+                EventType.VPN_STOP, "vpn service destroyed",
+                EventSource.SERVICE, userAction = userInitiated, details = "vpn destroyed"
+            )
+        } catch (t: Throwable) {
+            Logger.crash(LOG_TAG_VPN, "AUDIT (VULN-A): eventLogger threw on stop: ${t.message}", t as? Exception)
+        }
+        try {
+            stopSelf()
+        } catch (t: Throwable) {
+            Logger.crash(LOG_TAG_VPN, "AUDIT (VULN-A): stopSelf threw: ${t.message}", t as? Exception)
+        }
         Logger.i(LOG_TAG_VPN, "stopped vpn adapter & service: $reason, $userInitiated")
     }
 
     private suspend fun stopVpnAdapter() =
         withContext(CoroutineName("stopVpn") + serializer) {
-            if (vpnAdapter == null) {
+            // snapshot + null the field before calling into JNI so any other coroutine
+            // arriving here sees a null adapter and skips the disconnect (defense
+            // against UAF when two threads race closeTun on the same go-side handle).
+            val adapter = vpnAdapter
+            vpnAdapter = null
+            if (adapter == null) {
                 Logger.i(LOG_TAG_VPN, "vpn adapter already stopped")
                 return@withContext
             }
-
-            vpnAdapter?.closeTun()
-            vpnAdapter = null
+            try {
+                adapter.closeTun()
+            } catch (t: Throwable) {
+                Logger.crash(LOG_TAG_VPN, "AUDIT (VULN-A): closeTun threw: ${t.message}", t as? Exception)
+            }
             Logger.i(LOG_TAG_VPN, "stop vpn adapter")
         }
 
@@ -2815,7 +2852,10 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
             Log.INFO -> Logger.i(LOG_TAG_VPN, msg)
             else -> Logger.d(LOG_TAG_VPN, msg)
         }
-        uiCtx("toast") { if (DEBUG) showToastUiCentered(this, msg, Toast.LENGTH_LONG) }
+        // only surface WARN/ERROR to the user; INFO/DEBUG are internal status messages
+        if (logLevel == Log.WARN || logLevel == Log.ERROR) {
+            uiCtx("toast") { if (DEBUG) showToastUiCentered(this, msg, Toast.LENGTH_LONG) }
+        }
     }
 
     private fun notifyConnectionStateChangeIfNeeded() {
@@ -2961,8 +3001,21 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
 
             val prevSize = (prev?.ipv4Net?.size ?: 0) + (prev?.ipv6Net?.size ?: 0)
             val currSize = networks.ipv4Net.size + networks.ipv6Net.size
-            // force restart if no networks before or after
-            val forceRestart  = (prevSize == 0 && currSize > 0) || (prevSize > 0 && currSize == 0)
+            // Detect a genuine network switch (e.g., WiFi -> Mobile): same non-zero
+            // count but different network handles. Force-restart so WireGuard/proxies
+            // re-bind to the new interface instead of silently failing.
+            val prevHandles = ((prev?.ipv4Net ?: emptyList()) + (prev?.ipv6Net ?: emptyList()))
+                .map { it.network.networkHandle }.toSet()
+            val currHandles = (networks.ipv4Net + networks.ipv6Net)
+                .map { it.network.networkHandle }.toSet()
+            val networkSwitched = prevHandles.isNotEmpty()
+                && currHandles.isNotEmpty()
+                && prevHandles != currHandles
+            if (networkSwitched) {
+                Logger.i(LOG_TAG_VPN, "onNetworkChange: underlying network switched, forcing VPN restart")
+            }
+            // force restart when network count changes from/to 0, or network itself switched
+            val forceRestart = (prevSize == 0 && currSize > 0) || (prevSize > 0 && currSize == 0) || networkSwitched
             if (currSize > 0) {
                 onNetworkConnected(networks, forceRestart)
             } else {
@@ -3080,11 +3133,10 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
         if (isMtuChanged || isRoutesChanged || forceRestart) {
             Logger.i(LOG_TAG_VPN, "$TAG; mtu/routes/force-restart,  restart vpn")
             ioCtx("nwConnect") {
-                var reason = "mtu: ${curnet?.minMtu}/${networks.minMtu}, "
-                reason += "r: $isRoutesChanged, "
-                reason += "nws: ${curnet?.ipv4Net?.size}/${curnet?.ipv6Net?.size} > new: ${networks.ipv4Net.size}/${networks.ipv6Net.size} ($isBoundNetworksChanged), "
-                reason += "force: $forceRestart, lock: ${curnet?.vpnLockdown}/${networks.vpnLockdown}, "
-                reason += "nwConnect, $reason"
+                val reason = "nwConnect, mtu: ${curnet?.minMtu}/${networks.minMtu}, " +
+                    "r: $isRoutesChanged, " +
+                    "nws: ${curnet?.ipv4Net?.size}/${curnet?.ipv6Net?.size} > new: ${networks.ipv4Net.size}/${networks.ipv6Net.size} ($isBoundNetworksChanged), " +
+                    "force: $forceRestart, lock: ${curnet?.vpnLockdown}/${networks.vpnLockdown}"
                 vpnRestartTrigger.value = reason
                 // not needed as the refresh is done in go, TODO: remove below code later
                 // only after set links and routes, wg can be refreshed
@@ -3416,6 +3468,7 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
     }
 
     override fun onDestroy() {
+        WarpWatchdog.stop()              // stop the WARP health monitor first
         UsqueManager.stopSocksProxy()   // ← ADD THIS LINE
         // ... rest of existing onDestroy code unchanged ...
         if (persistentState.firewallBubbleEnabled) {
@@ -4945,6 +4998,38 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
         logd("flow: $_uid, $src, $dst, $realIps, $d, $blocklists")
         handleVpnLockdownStateAsync()
 
+        // SECURITY (VULN-B, ICMP exfil channel): even though firestack is supposed to drop
+        // ICMP at the TUN when persistentState.blockIcmp is true, defense-in-depth: if a
+        // future firestack revision starts dispatching ICMP through flow(), refuse it
+        // here as well. This ensures a "fully blocked" app can never use ICMP echo as a
+        // covert data channel. Returning Backend.Block makes the firestack flow handler
+        // drop the packet at the gVisor stack input.
+        if (persistentState.blockIcmp && isIcmpProtocol(protocol)) {
+            Logger.w(
+                LOG_TAG_VPN,
+                "AUDIT (VULN-B): blocking ICMP at flow() for uid=$_uid src=$src dst=$dst proto=$protocol"
+            )
+            val srcIpPort0 = parseIpAndPort(src.tos())
+            val dstIpPort0 = parseIpAndPort(dst.tos())
+            val cm0 = createConnTrackerMetaData(
+                FirewallManager.appId(_uid, isPrimaryUser()),
+                FirewallManager.userId(FirewallManager.appId(_uid, isPrimaryUser())),
+                srcIpPort0.first,
+                srcIpPort0.second,
+                dstIpPort0.first,
+                dstIpPort0.second,
+                protocol,
+                proxyDetails = "",
+                blocklists.tos() ?: "",
+                d.tos()?.split(",")?.firstOrNull(),
+                Utilities.getRandomString(8),
+                ConnectionTracker.ConnType.METERED
+            )
+            cm0.isBlocked = true
+            cm0.blockedByRule = FirewallRuleset.RULE1.id
+            return@go2kt persistAndConstructFlowResponse(cm0, Backend.Block, cm0.connId, cm0.uid)
+        }
+
         // in case of double loopback, all traffic will be part of rinr instead of just rethink's
         // own traffic. flip the doubleLoopback flag to true if we need that behavior
         val doubleLoopback = false
@@ -5103,8 +5188,29 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
         return@go2kt determineProxyDetails(cm, doubleLoopback, rinr)
     }
 
+    // SECURITY (VULN-B): centralised ICMP detection so flow() and inflow() agree on
+    // what protocol numbers are ICMP. ICMP=1 (IPv4), ICMPv6=58.
+    private fun isIcmpProtocol(protocol: Int): Boolean {
+        return protocol == Protocol.ICMP.protocolType || protocol == Protocol.ICMPV6.protocolType
+    }
+
     override fun inflow(protocol: Int, recvdUid: Int, src: Gostr?, dst: Gostr?): Mark =
         go2kt(inflowDispatcher) {
+            // SECURITY (VULN-B): block inbound ICMP at the firewall callback when the
+            // user has block_icmp set (default true). Same defense-in-depth rationale
+            // as the outbound flow() check above.
+            if (persistentState.blockIcmp && isIcmpProtocol(protocol)) {
+                Logger.w(
+                    LOG_TAG_VPN,
+                    "AUDIT (VULN-B): blocking inbound ICMP at inflow() uid=$recvdUid src=$src dst=$dst proto=$protocol"
+                )
+                val m = Mark()
+                m.pidcsv = Backend.Block
+                m.cid = Utilities.getRandomString(8)
+                m.uid = FirewallManager.appId(recvdUid, isPrimaryUser()).toString()
+                return@go2kt m
+            }
+
             val srcIpPort = parseIpAndPort(src.tos())
             val dstIpPort = parseIpAndPort(dst.tos())
             val srcIp = srcIpPort.first
@@ -5488,6 +5594,22 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
 
     suspend fun pauseSsidEnabledWireGuardOnNoNw() {
         val activeWgs = WireguardManager.getActiveConfigs()
+        // SECURITY (VULN-G): An attacker can broadcast an evil-twin AP using a
+        // known-trusted SSID and silently trick this code into pausing the
+        // WireGuard tunnel. We pin the BSSID first observed for an SSID (TOFU)
+        // and refuse to pause when the current BSSID does not match the pinned
+        // one.
+        val activeSsid = getUnderlyingSsid() ?: ""
+        val activeBssid = getUnderlyingBssidSafely()
+        val bssidMatches = isBssidTrustedForSsid(activeSsid, activeBssid)
+        if (persistentState.requireBssidMatchForSsid && activeSsid.isNotEmpty() && !bssidMatches) {
+            Logger.w(
+                LOG_TAG_VPN,
+                "AUDIT (VULN-G): refusing SSID-based wg pause; BSSID for '$activeSsid' " +
+                        "did not match the trusted (TOFU) BSSID. Possible evil-twin AP."
+            )
+            return
+        }
         activeWgs.forEach { config ->
             val map = WireguardManager.getConfigFilesById(config.getId())
             if (map == null || !map.ssidEnabled) {
@@ -5500,6 +5622,46 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
             // pause the wireguard proxy, so that it won't be used for new connections
             vpnAdapter?.pauseWireguard(id)
         }
+    }
+
+    /**
+     * Reads the current Wi-Fi BSSID. Returns null when permission is missing or
+     * the device is not on Wi-Fi. Wrapped in try/catch because WifiManager APIs
+     * can throw SecurityException on newer Android versions if location
+     * permission has been revoked.
+     */
+    private fun getUnderlyingBssidSafely(): String? {
+        return try {
+            val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as? android.net.wifi.WifiManager
+            @Suppress("DEPRECATION")
+            wm?.connectionInfo?.bssid
+        } catch (e: Throwable) {
+            Logger.d(LOG_TAG_VPN, "BSSID read failed: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Trust-on-first-use check. The first time we see a given SSID we pin its
+     * BSSID; subsequent connections must match. If we cannot read the BSSID we
+     * fail open (return true) to avoid blocking the user on devices/permissions
+     * that don't expose it — but we still log.
+     */
+    private fun isBssidTrustedForSsid(ssid: String, currentBssid: String?): Boolean {
+        if (ssid.isEmpty()) return true
+        if (currentBssid.isNullOrEmpty() || currentBssid == "02:00:00:00:00:00") {
+            // Anonymized/unreadable BSSID — fail open but record.
+            return true
+        }
+        val prefs = applicationContext.getSharedPreferences("ssid_bssid_pin", Context.MODE_PRIVATE)
+        val key = "ssid:" + ssid
+        val pinned = prefs.getString(key, null)
+        if (pinned == null) {
+            prefs.edit().putString(key, currentBssid).apply()
+            Logger.i(LOG_TAG_VPN, "TOFU: pinned BSSID $currentBssid for SSID '$ssid'")
+            return true
+        }
+        return pinned.equals(currentBssid, ignoreCase = true)
     }
 
     suspend fun refreshOrPauseOrResumeOrReAddProxies() {

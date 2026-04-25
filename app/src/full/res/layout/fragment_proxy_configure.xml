@@ -211,42 +211,78 @@
 
         </LinearLayout>
 
-        <!-- Action buttons row -->
-        <LinearLayout
+        <!-- Connect/disconnect switch row -->
+        <RelativeLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
             android:layout_marginTop="12dp"
-            android:gravity="end">
+            android:visibility="gone"
+            android:id="@+id/settings_activity_warp_switch_row">
 
-            <!-- Register (always visible until registered) -->
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/settings_activity_warp_register_btn"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/settings_activity_warp_switch"
+                style="@style/CustomWidget.MaterialComponents.CompoundButton.Switch"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="@string/warp_register_button"
-                android:layout_marginEnd="8dp" />
+                android:layout_alignParentEnd="true"
+                android:layout_centerVertical="true"
+                android:padding="10dp" />
 
-            <!-- Connect (visible when registered but not connected) -->
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/settings_activity_warp_connect_btn"
-                style="@style/Widget.MaterialComponents.Button"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/warp_btn_connect"
-                android:visibility="gone" />
+        </RelativeLayout>
 
-            <!-- Disconnect (visible when connected) -->
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/settings_activity_warp_disconnect_btn"
-                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/warp_btn_disconnect"
-                android:visibility="gone" />
+        <!-- SNI override editor: max 20 chars, default cloudflare.com -->
+          <LinearLayout
+              android:layout_width="match_parent"
+              android:layout_height="wrap_content"
+              android:layout_marginTop="12dp"
+              android:gravity="center_vertical"
+              android:orientation="horizontal">
 
-        </LinearLayout>
+              <com.google.android.material.textfield.TextInputLayout
+                  android:layout_width="0dp"
+                  android:layout_height="wrap_content"
+                  android:layout_weight="1"
+                  android:hint="SNI (ClientHello)">
+
+                  <com.google.android.material.textfield.TextInputEditText
+                      android:id="@+id/settings_activity_warp_sni_edit"
+                      android:layout_width="match_parent"
+                      android:layout_height="wrap_content"
+                      android:inputType="textUri"
+                      android:maxLength="20"
+                      android:singleLine="true"
+                      android:text="cloudflare.com" />
+              </com.google.android.material.textfield.TextInputLayout>
+
+              <com.google.android.material.button.MaterialButton
+                  android:id="@+id/settings_activity_warp_sni_save_btn"
+                  style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_marginStart="8dp"
+                  android:text="Save"
+                  android:textColor="?attr/primaryTextColor" />
+
+              <com.google.android.material.button.MaterialButton
+                  android:id="@+id/settings_activity_warp_sni_reset_btn"
+                  style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                  android:layout_width="wrap_content"
+                  android:layout_height="wrap_content"
+                  android:layout_marginStart="8dp"
+                  android:text="Reset"
+                  android:textColor="?attr/primaryTextColor" />
+          </LinearLayout>
+
+          <!-- Register button (centered, visible until registered) -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/settings_activity_warp_register_btn"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="12dp"
+            android:text="@string/warp_register_button"
+            android:textColor="?attr/primaryTextColor" />
 
     </LinearLayout>
 

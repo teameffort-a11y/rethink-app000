@@ -52,7 +52,6 @@ import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
-import java.io.ObjectOutputStream
 import java.io.OutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -239,10 +238,14 @@ class BackupAgent(val context: Context, workerParams: WorkerParameters) :
             val inputStream: InputStream =
                 context.contentResolver.openInputStream(zipFileUri) ?: return false
             val outputStream: OutputStream =
-                context.contentResolver.openOutputStream(destUri) ?: return false
+                context.contentResolver.openOutputStream(destUri) ?: run {
+                    inputStream.close()
+                    return false
+                }
 
             // we are passing the streams instead of actual files because we do not have
             // write access to the destination dir.
+            // copyWithStream closes both streams via use{} internally.
             val copySucceeded: Boolean = copyWithStream(inputStream, outputStream)
             return if (copySucceeded) {
                 Logger.i(
@@ -292,28 +295,63 @@ class BackupAgent(val context: Context, workerParams: WorkerParameters) :
         return path + File.separator + fileName
     }
 
+    // SECURITY (VULN, Insecure Deserialization / CWE-502): The previous implementation
+    // serialized SharedPreferences via java.io.ObjectOutputStream and the matching
+    // restore path used java.io.ObjectInputStream on a user-supplied .rbk file. That is
+    // a classic ACE primitive: a crafted backup whose embedded class graph triggers any
+    // gadget chain available on the classpath (Android framework, Glide, Gson, OkHttp,
+    // Koin, etc.) executes attacker-controlled code in the Rethink process — which
+    // holds VPN, accessibility-style network visibility, and EncryptedFile master keys.
+    //
+    // Fix: write a strict JSON envelope with a magic header. Only primitive scalar prefs
+    // (Boolean/Int/Long/Float/String/Set<String>) are exported, matching what
+    // SharedPreferences supports. The restore side parses with org.json (no class
+    // instantiation), validates types per key, and rejects any old-format binary blob.
     private fun saveSharedPreferencesToFile(context: Context, prefFile: File): Boolean {
-        var output: ObjectOutputStream? = null
-
         Logger.i(LOG_TAG_BACKUP_RESTORE, "begin shared pref copy, file path:${prefFile.path}")
         val sharedPrefs: SharedPreferences = PreferenceManager.getDefaultSharedPreferences(context)
 
         try {
-            output = ObjectOutputStream(FileOutputStream(prefFile))
-            val allPrefs = sharedPrefs.all
-            output.writeObject(allPrefs)
+            val entries = org.json.JSONArray()
+            for ((k, v) in sharedPrefs.all) {
+                if (k == null) continue
+                val item = org.json.JSONObject()
+                item.put("k", k)
+                when (v) {
+                    is Boolean -> { item.put("t", "bool"); item.put("v", v) }
+                    is Int -> { item.put("t", "int"); item.put("v", v) }
+                    is Long -> { item.put("t", "long"); item.put("v", v) }
+                    is Float -> { item.put("t", "float"); item.put("v", v.toDouble()) }
+                    is String -> { item.put("t", "string"); item.put("v", v) }
+                    is Set<*> -> {
+                        val arr = org.json.JSONArray()
+                        for (s in v) {
+                            if (s is String) arr.put(s) else continue
+                        }
+                        item.put("t", "stringset")
+                        item.put("v", arr)
+                    }
+                    null -> continue
+                    else -> {
+                        Logger.w(LOG_TAG_BACKUP_RESTORE, "AUDIT: skipping non-scalar pref '$k' of type ${v.javaClass.name}")
+                        continue
+                    }
+                }
+                entries.put(item)
+            }
+            val envelope = org.json.JSONObject()
+            envelope.put("format", "RTHK_PREFS_JSON")
+            envelope.put("version", 2)
+            envelope.put("entries", entries)
+
+            FileOutputStream(prefFile).use { fos ->
+                fos.write("RTHK_PREFS_V2_JSON\n".toByteArray(Charsets.UTF_8))
+                fos.write(envelope.toString().toByteArray(Charsets.UTF_8))
+                fos.flush()
+            }
         } catch (e: Exception) {
             Logger.crash(LOG_TAG_BACKUP_RESTORE, "exception during shared pref backup, ${e.message}", e)
             return false
-        } finally {
-            try {
-                if (output != null) {
-                    output.flush()
-                    output.close()
-                }
-            } catch (_: IOException) {
-                // no-op
-            }
         }
         filesPathToZip.add(prefFile.absolutePath)
         return true
@@ -337,25 +375,20 @@ class BackupAgent(val context: Context, workerParams: WorkerParameters) :
         val outputFileName = zipDirectory + File.separator + TEMP_ZIP_FILE_NAME
         Logger.d(LOG_TAG_BACKUP_RESTORE, "files: $files, output: $outputFileName")
         return try {
-            val dest = FileOutputStream(outputFileName)
-            val out = ZipOutputStream(BufferedOutputStream(dest))
             val bufferSize = 80000
-            var origin: BufferedInputStream
             val data = ByteArray(bufferSize)
-            for (file in files) {
-                val fi = FileInputStream(file)
-                origin = BufferedInputStream(fi, bufferSize)
-                val entry = ZipEntry(getFileNameFromPath(file))
-                out.putNextEntry(entry)
-                var count: Int
-                while (origin.read(data, 0, bufferSize).also { count = it } != -1) {
-                    out.write(data, 0, count)
+            ZipOutputStream(BufferedOutputStream(FileOutputStream(outputFileName))).use { out ->
+                for (file in files) {
+                    BufferedInputStream(FileInputStream(file), bufferSize).use { origin ->
+                        out.putNextEntry(ZipEntry(getFileNameFromPath(file)))
+                        var count: Int
+                        while (origin.read(data, 0, bufferSize).also { count = it } != -1) {
+                            out.write(data, 0, count)
+                        }
+                    }
+                    Logger.d(LOG_TAG_BACKUP_RESTORE, "$file added to zip, path: $file")
                 }
-                origin.close()
-                Logger.d(LOG_TAG_BACKUP_RESTORE, "$file added to zip, path: $file")
             }
-            out.close()
-            out.close()
             Logger.i(LOG_TAG_BACKUP_RESTORE, "$files added to zip")
             true
         } catch (e: Exception) {
