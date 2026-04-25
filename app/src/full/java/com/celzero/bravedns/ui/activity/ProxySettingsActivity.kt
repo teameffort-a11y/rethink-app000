@@ -56,6 +56,7 @@ import com.celzero.bravedns.service.PersistentState
 import com.celzero.bravedns.service.ProxyManager
 import com.celzero.bravedns.service.TcpProxyHelper
 import com.celzero.bravedns.service.UsqueManager
+import com.celzero.bravedns.service.WarpWatchdog
 import com.celzero.bravedns.service.VpnController
 import com.celzero.bravedns.service.WireguardManager
 import com.celzero.bravedns.service.WireguardManager.WG_UPTIME_THRESHOLD
@@ -414,6 +415,10 @@ class ProxySettingsActivity : AppCompatActivity(R.layout.fragment_proxy_configur
                         )
                         appConfig.updateCustomSocks5Proxy(warpProxy)
                         persistentState.usqueEnabled = true
+                        // Watch the tunnel: auto-restart usque if the ISP
+                        // silently kills it. The SOCKS5 entry above stays
+                        // intact so apps don't need to be reconfigured.
+                        WarpWatchdog.start(this@ProxySettingsActivity)
                     }
                     uiCtx {
                         if (started) {
@@ -430,6 +435,7 @@ class ProxySettingsActivity : AppCompatActivity(R.layout.fragment_proxy_configur
                     }
                 }
             } else {
+                WarpWatchdog.stop()
                 UsqueManager.stopSocksProxy()
                 appConfig.removeProxy(AppConfig.ProxyType.SOCKS5, AppConfig.ProxyProvider.CUSTOM)
                 persistentState.usqueEnabled = false
@@ -449,9 +455,15 @@ class ProxySettingsActivity : AppCompatActivity(R.layout.fragment_proxy_configur
             return
         }
         io {
+            // Pause the watchdog while we deliberately bounce the tunnel so
+            // it doesn't try to "rescue" the in-progress restart.
+            WarpWatchdog.stop()
             UsqueManager.stopSocksProxy()
             kotlinx.coroutines.delay(500)
             val started = UsqueManager.startSocksProxy(this@ProxySettingsActivity)
+            if (started) {
+                WarpWatchdog.start(this@ProxySettingsActivity)
+            }
             uiCtx {
                 showToastUiCentered(
                     this@ProxySettingsActivity,

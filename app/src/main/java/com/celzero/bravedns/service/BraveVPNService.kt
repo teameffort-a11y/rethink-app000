@@ -25,6 +25,7 @@ import Logger.LOG_TAG_CONNECTION
 import Logger.LOG_TAG_VPN
 // ADD import near other service imports:
 import com.celzero.bravedns.service.UsqueManager
+import com.celzero.bravedns.service.WarpWatchdog
 import android.annotation.SuppressLint
 import android.app.ActivityManager
 import android.app.ForegroundServiceStartNotAllowedException
@@ -3467,6 +3468,7 @@ class BraveVPNService : VpnService(), ConnectionMonitor.NetworkListener, Bridge,
     }
 
     override fun onDestroy() {
+        WarpWatchdog.stop()              // stop the WARP health monitor first
         UsqueManager.stopSocksProxy()   // ← ADD THIS LINE
         // ... rest of existing onDestroy code unchanged ...
         if (persistentState.firewallBubbleEnabled) {
